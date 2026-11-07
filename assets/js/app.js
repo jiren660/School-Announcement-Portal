@@ -6,6 +6,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const searchInput = document.getElementById('search-input');
     const categoryPills = document.querySelectorAll('.pill-btn');
     const cards = document.querySelectorAll('.announcement-card');
+    const feedContainer = document.querySelector('.feed-container');
     const modal = document.getElementById('announcement-modal');
     const modalCloseBtn = document.getElementById('modal-close-btn');
     const modalTitle = document.getElementById('modal-title');
@@ -14,9 +15,27 @@ document.addEventListener('DOMContentLoaded', () => {
     const modalAuthor = document.getElementById('modal-author');
     const modalBody = document.getElementById('modal-body');
     const noResultsMsg = document.getElementById('no-results-msg');
+    const urgentMessage = document.getElementById('urgent-message');
+    const urgentTitle = document.getElementById('urgent-title');
+    const urgentSummary = document.getElementById('urgent-summary');
+    const urgentItems = Array.from(document.querySelectorAll('.urgent-alert-item'));
 
     let currentCategory = 'all';
     let searchQuery = '';
+    let activeUrgentIndex = 0;
+
+    if (urgentItems.length > 1 && urgentTitle && urgentSummary && urgentMessage) {
+        window.setInterval(() => {
+            urgentMessage.classList.add('is-changing');
+            window.setTimeout(() => {
+                activeUrgentIndex = (activeUrgentIndex + 1) % urgentItems.length;
+                const nextUrgent = urgentItems[activeUrgentIndex];
+                urgentTitle.textContent = `${nextUrgent.dataset.title || ''}:`;
+                urgentSummary.textContent = nextUrgent.dataset.summary || '';
+                urgentMessage.classList.remove('is-changing');
+            }, 250);
+        }, 10000);
+    }
 
     // Filter Logic
     function filterCards() {
@@ -58,6 +77,9 @@ document.addEventListener('DOMContentLoaded', () => {
             pill.classList.add('active');
             currentCategory = pill.dataset.category;
             filterCards();
+            if (feedContainer) {
+                feedContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
         });
     });
 
@@ -80,6 +102,22 @@ document.addEventListener('DOMContentLoaded', () => {
             if (modal) {
                 modal.classList.add('active');
                 document.body.style.overflow = 'hidden';
+            }
+
+            if (card.dataset.trackViews === 'true') {
+                const formData = new URLSearchParams({ id: card.dataset.id });
+                fetch('record_view.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: formData.toString()
+                }).then(response => {
+                    if (!response.ok) {
+                        throw new Error(`View count request failed with status ${response.status}`);
+                    }
+                    return response.json();
+                }).catch(error => {
+                    console.error('Unable to record announcement view:', error);
+                });
             }
         });
     });

@@ -1,4 +1,4 @@
-# 🎓 School Announcement Portal (Apex State University)
+# 🎓 School Announcement Portal (International State College of the Philippines)
 
 A modern, high-performance School Announcement & Bulletin Board System built with **PHP** and **MySQL / MariaDB**.
 
@@ -72,11 +72,20 @@ Open your browser on Windows and navigate to:
 
 ---
 
-## 🔐 Admin Credentials
+## 🔐 Admin Account Setup
 
 * **URL:** `http://localhost:8000/admin/login.php`
-* **Username:** `admin`
-* **Password:** `password123`
+* Admin sign-in checks credentials against the `admins` table; no demo account is used.
+* Create a password hash in WSL using PHP:
+  ```bash
+  php -r 'echo password_hash("CHOOSE_A_STRONG_PASSWORD", PASSWORD_DEFAULT), PHP_EOL;'
+  ```
+* Insert an administrator into the database, replacing the example values and hash:
+  ```sql
+  INSERT INTO admins (username, password_hash, full_name, email, role)
+  VALUES ('your_username', 'PASTE_GENERATED_HASH_HERE', 'Your Name', 'you@example.com', 'Super Admin');
+  ```
+* Run the SQL in the `school_portal` database using an authorized database account. Keep the password hash private, and do not store your real password in the SQL statement.
 
 ---
 

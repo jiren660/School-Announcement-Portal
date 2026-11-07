@@ -60,11 +60,7 @@ INSERT INTO `categories` (`id`, `name`, `slug`, `badge_color`, `icon`) VALUES
 (5, 'Admissions & Enrollment', 'admissions', 'info', 'file-text')
 ON DUPLICATE KEY UPDATE `name`=VALUES(`name`);
 
--- Default Admin User (username: admin | password: password123)
--- Hash generated using password_hash('password123', PASSWORD_BCRYPT)
-INSERT INTO `admins` (`id`, `username`, `password_hash`, `full_name`, `email`, `role`) VALUES
-(1, 'admin', '$2y$10$wT0o3q6bI1LzV7jG7rM2xe4kZ9mYqG/qXwT4nUeJ5dM8dY2eH1n0y', 'Head Administrator', 'admin@school.edu.ph', 'Super Admin')
-ON DUPLICATE KEY UPDATE `full_name`=VALUES(`full_name`);
+-- Create administrator accounts manually using a password_hash() value.
 
 -- Default Announcements
 INSERT INTO `announcements` (`title`, `slug`, `summary`, `content`, `category_id`, `target_audience`, `is_urgent`, `is_pinned`, `author_name`, `status`, `views_count`, `published_at`) VALUES

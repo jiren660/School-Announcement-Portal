@@ -7,7 +7,9 @@ $db_error = get_db_error();
 
 $categories = [];
 $announcements = [];
+$urgent_alerts = [];
 $urgent_alert = null;
+$using_mock_data = false;
 
 if ($is_connected && $pdo) {
     try {
@@ -26,13 +28,6 @@ if ($is_connected && $pdo) {
         $stmt = $pdo->query($sql);
         $announcements = $stmt->fetchAll();
 
-        // Find active urgent alert
-        foreach ($announcements as $item) {
-            if ($item['is_urgent'] == 1) {
-                $urgent_alert = $item;
-                break;
-            }
-        }
     } catch (PDOException $e) {
         $is_connected = false;
         $db_error['message'] = $e->getMessage();
@@ -41,6 +36,7 @@ if ($is_connected && $pdo) {
 
 // Fallback Mock Data if VM Database is not yet connected
 if (!$is_connected || empty($announcements)) {
+    $using_mock_data = true;
     $categories = [
         ['id' => 1, 'name' => 'Urgent Alert', 'slug' => 'urgent-alert', 'badge_color' => 'danger'],
         ['id' => 2, 'name' => 'Academic Affairs', 'slug' => 'academic-affairs', 'badge_color' => 'primary'],
@@ -108,15 +104,19 @@ if (!$is_connected || empty($announcements)) {
         ]
     ];
 
-    $urgent_alert = $announcements[0];
 }
+
+$urgent_alerts = array_values(array_filter($announcements, function ($item) {
+    return !empty($item['is_urgent']);
+}));
+$urgent_alert = $urgent_alerts[0] ?? null;
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>School Announcement Portal - Apex State University</title>
+    <title>School Announcement Portal - International State College of the Philippines</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -128,26 +128,27 @@ if (!$is_connected || empty($announcements)) {
     <header class="navbar">
         <div class="nav-container">
             <div class="brand-wrapper">
-                <div class="brand-icon">🎓</div>
+                <img class="brand-logo" src="assets/images/iscp_logo.png" alt="International State College of the Philippines logo">
                 <div class="brand-text">
-                    <h1>Apex State University</h1>
+                    <h1>International State College of the Philippines</h1>
                     <p>Official Announcement Portal</p>
                 </div>
             </div>
 
-            <div class="nav-actions">
-                <!-- Database Connection Status Badge -->
-                <div class="db-status-pill" title="<?= $is_connected ? 'Connected to VM MySQL Database' : 'Database Offline: ' . htmlspecialchars($db_error['message']) ?>">
-                    <span class="status-dot <?= $is_connected ? 'online' : 'offline' ?>"></span>
-                    <span>VM Database: <?= $is_connected ? 'Online' : 'Offline' ?></span>
-                </div>
-
-                <a href="admin/login.php" class="btn btn-secondary">
-                    <span>🔐 Admin Portal</span>
-                </a>
-            </div>
         </div>
     </header>
+
+    <!-- Category Filters -->
+    <section class="filter-bar">
+        <div class="category-pills">
+            <button class="pill-btn active" data-category="all">All Announcements</button>
+            <?php foreach ($categories as $cat): ?>
+            <button class="pill-btn" data-category="<?= htmlspecialchars($cat['slug']) ?>">
+                <?= htmlspecialchars($cat['name']) ?>
+            </button>
+            <?php endforeach; ?>
+        </div>
+    </section>
 
     <!-- Database Offline Notice (if VM is not yet active) -->
     <?php if (!$is_connected): ?>
@@ -159,35 +160,37 @@ if (!$is_connected || empty($announcements)) {
 
     <!-- Urgent Alert Ribbon -->
     <?php if ($urgent_alert): ?>
-    <section class="urgent-banner">
+    <section class="urgent-banner" id="urgent-banner" aria-live="polite">
         <div class="urgent-content">
-            <span class="urgent-badge">🚨 URGENT</span>
-            <span><strong><?= htmlspecialchars($urgent_alert['title']) ?>:</strong> <?= htmlspecialchars($urgent_alert['summary']) ?></span>
+            <span class="urgent-badge">URGENT</span>
+            <span class="urgent-message" id="urgent-message">
+                <strong id="urgent-title"><?= htmlspecialchars($urgent_alert['title']) ?>:</strong>
+                <span id="urgent-summary"><?= htmlspecialchars($urgent_alert['summary']) ?></span>
+            </span>
         </div>
-        <button class="btn btn-secondary open-modal-trigger" style="padding: 0.35rem 0.85rem; font-size: 0.75rem;">View Notice</button>
+        <div class="urgent-alert-data" id="urgent-alert-data" hidden>
+            <?php foreach ($urgent_alerts as $urgent_item): ?>
+            <div class="urgent-alert-item"
+                 data-title="<?= htmlspecialchars($urgent_item['title'] ?? '', ENT_QUOTES, 'UTF-8') ?>"
+                 data-summary="<?= htmlspecialchars($urgent_item['summary'] ?? '', ENT_QUOTES, 'UTF-8') ?>"></div>
+            <?php endforeach; ?>
+        </div>
     </section>
     <?php endif; ?>
 
     <!-- Hero Section -->
     <section class="hero-section">
-        <h2 class="hero-title">Campus Bulletins & Announcements</h2>
+        <h2 class="hero-title">ISCP Campus Bulletins & Announcements</h2>
         <p class="hero-subtitle">Stay informed with the latest official advisories, academic schedules, events, and campus updates.</p>
-    </section>
-
-    <!-- Search & Category Filters -->
-    <section class="filter-bar">
         <div class="search-box-wrapper">
-            <span class="search-icon">🔍</span>
+            <label class="visually-hidden" for="search-input">Search announcements</label>
+            <span class="search-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" focusable="false">
+                    <circle cx="10.8" cy="10.8" r="6.8"></circle>
+                    <path d="m16 16 4.5 4.5"></path>
+                </svg>
+            </span>
             <input type="text" id="search-input" class="search-input" placeholder="Search announcements by title or keywords...">
-        </div>
-
-        <div class="category-pills">
-            <button class="pill-btn active" data-category="all">All Announcements</button>
-            <?php foreach ($categories as $cat): ?>
-            <button class="pill-btn" data-category="<?= htmlspecialchars($cat['slug']) ?>">
-                <?= htmlspecialchars($cat['name']) ?>
-            </button>
-            <?php endforeach; ?>
         </div>
     </section>
 
@@ -202,6 +205,7 @@ if (!$is_connected || empty($announcements)) {
             <?php foreach ($announcements as $item): ?>
             <article class="announcement-card <?= ($item['is_urgent'] ?? 0) ? 'is-urgent' : '' ?> <?= ($item['is_pinned'] ?? 0) ? 'is-pinned' : '' ?>"
                      data-id="<?= htmlspecialchars($item['id']) ?>"
+                     data-track-views="<?= $using_mock_data ? 'false' : 'true' ?>"
                      data-title="<?= htmlspecialchars($item['title']) ?>"
                      data-summary="<?= htmlspecialchars($item['summary']) ?>"
                      data-content="<?= htmlspecialchars($item['content']) ?>"
@@ -221,7 +225,6 @@ if (!$is_connected || empty($announcements)) {
                             <?php if (!empty($item['is_pinned'])): ?>
                                 <span title="Pinned to top">📌 Pinned</span>
                             <?php endif; ?>
-                            <span>👁️ <?= (int)($item['views_count'] ?? 0) ?></span>
                         </div>
                     </div>
 
@@ -260,10 +263,8 @@ if (!$is_connected || empty($announcements)) {
 
     <!-- Footer -->
     <footer class="footer">
-        <p>&copy; <?= date('Y') ?> Apex State University — School Announcement Portal</p>
-        <p style="margin-top: 0.4rem; font-size: 0.75rem; color: var(--text-dim);">
-            Developed with PHP & MySQL | WSL & VirtualBox Remote Database Architecture
-        </p>
+        <p>&copy; <?= date('Y') ?> International State College of the Philippines — School Announcement Portal</p>
+        <a class="footer-admin-link" href="admin/login.php">Admin Login</a>
     </footer>
 
     <script src="assets/js/app.js"></script>
