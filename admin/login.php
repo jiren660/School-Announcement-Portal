@@ -164,7 +164,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <form method="POST" action="login.php">
                 <div class="form-group">
                     <label for="username">Username</label>
-                    <input type="text" id="username" name="username" class="form-control" placeholder="Enter your database username" required autofocus>
+                    <input type="text" id="username" name="username" class="form-control" placeholder="Enter your username" required autofocus>
                 </div>
 
                 <div class="form-group">
