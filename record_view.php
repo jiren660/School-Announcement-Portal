@@ -30,7 +30,7 @@ if (!isset($_SESSION['viewed_announcements']) || !is_array($_SESSION['viewed_ann
 
 try {
     if (isset($_SESSION['viewed_announcements'][$announcement_id])) {
-        $stmt = $pdo->prepare("SELECT views_count FROM announcements WHERE id = ? AND status = 'published'");
+        $stmt = $pdo->prepare("SELECT views_count FROM announcements WHERE id = ? AND status IN ('published', 'approved')");
         $stmt->execute([$announcement_id]);
         $views_count = $stmt->fetchColumn();
 
@@ -43,7 +43,7 @@ try {
         $stmt = $pdo->prepare("
             UPDATE announcements
             SET views_count = COALESCE(views_count, 0) + 1
-            WHERE id = ? AND status = 'published'
+            WHERE id = ? AND status IN ('published', 'approved')
         ");
         $stmt->execute([$announcement_id]);
 
