@@ -31,7 +31,14 @@ if ($pdo) {
         $categories = $pdo->query("SELECT DISTINCT category FROM announcements WHERE status = 'approved' AND category IS NOT NULL ORDER BY category ASC")->fetchAll(PDO::FETCH_COLUMN);
         
         // Base query
-        $where = ["a.status = 'approved'"];
+        $status_param = trim($_GET['status'] ?? '');
+        if ($status_param === 'pending') {
+            $where = ["a.status = 'pending'"];
+        } elseif ($status_param === 'rejected') {
+            $where = ["a.status = 'rejected'"];
+        } else {
+            $where = ["a.status IN ('approved', 'published')"];
+        }
         $params = [];
 
         if (!empty($search)) {

@@ -120,6 +120,7 @@ $urgent_alert = $urgent_alerts[0] ?? null;
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <link rel="stylesheet" href="assets/css/style.css">
 </head>
 <body>
@@ -135,6 +136,12 @@ $urgent_alert = $urgent_alerts[0] ?? null;
                 </div>
             </div>
 
+            <div class="nav-actions">
+                <a href="login.php" class="nav-btn-signin">
+                    <i class="fa-solid fa-arrow-right-to-bracket"></i>
+                    <span>Sign In</span>
+                </a>
+            </div>
         </div>
     </header>
 
@@ -264,7 +271,6 @@ $urgent_alert = $urgent_alerts[0] ?? null;
     <!-- Footer -->
     <footer class="footer">
         <p>&copy; <?= date('Y') ?> International State College of the Philippines — School Announcement Portal</p>
-        <a class="footer-admin-link" href="admin/login.php">Admin Login</a>
     </footer>
 
     <script src="assets/js/app.js"></script>

@@ -6,6 +6,9 @@
  * so development, WSL, and local testing work seamlessly.
  */
 
+// Set default timezone to Philippine Standard Time
+date_default_timezone_set('Asia/Manila');
+
 // Simple .env parser
 function load_env($filePath) {
     if (!file_exists($filePath)) {

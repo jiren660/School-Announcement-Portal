@@ -27,7 +27,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     $action = $_POST['action'] ?? '';
-    $allowed_roles = ['super_admin', 'university_admin', 'office_admin', 'college_admin', 'admin', 'announcer'];
+    $allowed_roles = ['super_admin', 'university_admin', 'office_admin', 'college_admin', 'department_admin', 'student', 'admin', 'announcer'];
 
     // 1. ADD USER
     if ($action === 'add') {
@@ -36,7 +36,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $password = $_POST['password'] ?? '';
         $role = trim($_POST['role'] ?? 'college_admin');
         $assigned_college = ($role === 'college_admin') ? trim($_POST['assigned_college'] ?? '') : null;
-        $status = trim($_POST['status'] ?? 'active');
+        $status = 'active'; // Default to active upon creation
+
+        // Allowed roles when creating accounts through this form
+        $allowed_add_roles = ['university_admin', 'office_admin', 'college_admin', 'department_admin'];
 
         // Validation
         if (empty($name) || strlen($name) < 2) {
@@ -45,12 +48,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             set_flash('danger', 'A valid email address is required.');
         } elseif (strlen($password) < 6) {
             set_flash('danger', 'Password must be at least 6 characters long.');
-        } elseif (!in_array($role, $allowed_roles, true)) {
-            set_flash('danger', 'Invalid role selected.');
+        } elseif (!in_array($role, $allowed_add_roles, true)) {
+            set_flash('danger', 'Invalid administrator role selected.');
         } elseif ($role === 'college_admin' && empty($assigned_college)) {
             set_flash('danger', 'Please select the specific College for the College Administrator.');
-        } elseif (!in_array($status, ['active', 'inactive'], true)) {
-            set_flash('danger', 'Invalid status selected.');
         } else {
             try {
                 // Check email uniqueness
@@ -448,24 +449,14 @@ require_once __DIR__ . '/includes/header.php';
                     <div class="form-hint">Password will be securely hashed with bcrypt.</div>
                 </div>
 
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-                    <div class="form-group" style="margin-bottom: 0;">
-                        <label for="add_role" class="form-label">Account Role <span class="required">*</span></label>
-                        <select id="add_role" name="role" class="form-select" onchange="toggleCollegeField('add')" required>
-                            <option value="super_admin">Super Administrator (Full Admin Access)</option>
-                            <option value="university_admin" selected>University Administrator</option>
-                            <option value="office_admin">Office Administrator</option>
-                            <option value="college_admin">College Administrator</option>
-                        </select>
-                    </div>
-
-                    <div class="form-group" style="margin-bottom: 0;">
-                        <label for="add_status" class="form-label">Status <span class="required">*</span></label>
-                        <select id="add_status" name="status" class="form-select" required>
-                            <option value="active" selected>Active</option>
-                            <option value="inactive">Inactive</option>
-                        </select>
-                    </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label for="add_role" class="form-label">Account Role <span class="required">*</span></label>
+                    <select id="add_role" name="role" class="form-select" onchange="toggleCollegeField('add')" required>
+                        <option value="university_admin" selected>University Administrator</option>
+                        <option value="office_admin">Office Administrator</option>
+                        <option value="college_admin">College Administrator</option>
+                        <option value="department_admin">Department Administrator</option>
+                    </select>
                 </div>
 
                 <!-- Specific College Field (strictly shown ONLY when College Administrator is selected) -->
@@ -532,6 +523,8 @@ require_once __DIR__ . '/includes/header.php';
                             <option value="university_admin">University Administrator</option>
                             <option value="office_admin">Office Administrator</option>
                             <option value="college_admin">College Administrator</option>
+                            <option value="department_admin">Department Administrator</option>
+                            <option value="student">Student (View-Only Portal)</option>
                         </select>
                     </div>
 

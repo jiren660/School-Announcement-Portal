@@ -137,6 +137,45 @@ a {
     gap: 1rem;
 }
 
+.nav-btn-signin {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    padding: 0.58rem 1.35rem;
+    background: #ffffff;
+    color: #0755b8;
+    font-size: 0.9rem;
+    font-weight: 700;
+    text-decoration: none;
+    border-radius: 50px;
+    border: 1px solid rgba(255, 255, 255, 0.95);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.16), 0 0 0 1px rgba(255, 255, 255, 0.3);
+    transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+    letter-spacing: 0.01em;
+}
+
+.nav-btn-signin i {
+    font-size: 0.92rem;
+    color: #0284c7;
+    transition: transform 0.2s ease;
+}
+
+.nav-btn-signin:hover {
+    background: #ffffff;
+    color: #0284c7;
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(3, 105, 161, 0.3), 0 0 0 2px rgba(255, 255, 255, 0.85);
+}
+
+.nav-btn-signin:hover i {
+    transform: translateX(2px);
+}
+
+.nav-btn-signin:active {
+    transform: translateY(0);
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.15);
+}
+
 /* Buttons */
 .btn {
     display: inline-flex;

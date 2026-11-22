@@ -7,17 +7,37 @@ if (!defined('APP_INIT')) {
 }
 ?>
         </main>
+    </div>
+</div>
 
-        <!-- Admin Global Footer -->
-        <footer class="admin-footer">
-            <div class="footer-left">
-                &copy; <?= date('Y') ?> International State College of the Philippines. School Announcement System.
+<!-- Sign Out Confirmation Modal -->
+<div class="modal-overlay" id="signOutModal">
+    <div class="modal-dialog" style="max-width: 440px;">
+        <div class="modal-header">
+            <h3 class="modal-title" style="display: flex; align-items: center; gap: 0.5rem; color: #dc2626;">
+                <i class="fa-solid fa-right-from-bracket"></i> Confirm Sign Out
+            </h3>
+            <button type="button" class="modal-close" onclick="closeModal('signOutModal')">&times;</button>
+        </div>
+        <div class="modal-body" style="padding: 1.5rem 1.25rem; text-align: center;">
+            <div style="width: 56px; height: 56px; border-radius: 50%; background: #fee2e2; color: #dc2626; font-size: 1.5rem; display: flex; align-items: center; justify-content: center; margin: 0 auto 1.25rem;">
+                <i class="fa-solid fa-arrow-right-from-bracket"></i>
             </div>
-            <div class="footer-right">
-                <span class="db-badge">Database: <?= strtoupper(get_db_driver()) ?></span>
-                <span class="security-status"><i class="fa-solid fa-shield-halved"></i> Role: Admin</span>
-            </div>
-        </footer>
+            <h4 style="font-size: 1.15rem; font-weight: 800; color: #0f172a; margin-bottom: 0.5rem;">
+                Are you sure you want to sign out?
+            </h4>
+            <p style="font-size: 0.88rem; color: #64748b; line-height: 1.5; margin-bottom: 0;">
+                Your administrative session will be securely ended. Any unsaved changes in progress will be lost.
+            </p>
+        </div>
+        <div class="modal-footer" style="display: flex; gap: 0.75rem; justify-content: flex-end; background: #f8fafc; padding: 1rem 1.25rem; border-top: 1px solid #e2e8f0;">
+            <button type="button" class="btn btn-outline" onclick="closeModal('signOutModal')">
+                Cancel
+            </button>
+            <a href="logout.php" class="btn btn-danger" style="display: inline-flex; align-items: center; gap: 0.45rem;">
+                <i class="fa-solid fa-right-from-bracket"></i> Yes, Sign Out
+            </a>
+        </div>
     </div>
 </div>
 

@@ -1,17 +1,24 @@
 <?php
 /**
- * Unified Login Portal
- * For Administrators, Teachers, Faculty, and Staff (Announcers)
+ * Unified School & Admin Sign In Portal
+ * International State College of the Philippines
+ * 
+ * Supports Super Admin, University Admin, Office Admin, College Admin,
+ * Department Admin, Faculty/Announcers, and Students.
  */
 
 session_start();
 require_once __DIR__ . '/config/database.php';
 require_once __DIR__ . '/admin/includes/auth.php';
 
-// If already logged in, redirect to respective portal
+// If already logged in, redirect to respective role portal
 if (!empty($_SESSION['user_id']) && !empty($_SESSION['user_role'])) {
-    if (in_array($_SESSION['user_role'], ['admin', 'super_admin'], true)) {
+    $role = $_SESSION['user_role'];
+    if (in_array($role, ['admin', 'super_admin', 'university_admin', 'office_admin', 'college_admin', 'department_admin'], true)) {
         header('Location: admin/index.php');
+        exit;
+    } elseif ($role === 'student') {
+        header('Location: student/index.php');
         exit;
     } else {
         header('Location: announcer/index.php');
@@ -37,19 +44,25 @@ if (isset($_GET['msg']) && $_GET['msg'] === 'logged_out') {
 $pdo = get_db();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $email = trim($_POST['email'] ?? '');
+    $login_input = trim($_POST['email'] ?? $_POST['username'] ?? '');
     $password = trim($_POST['password'] ?? '');
 
-    if (empty($email) || empty($password)) {
-        $error = 'Please enter both your email address and password.';
-    } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-        $error = 'Please enter a valid school email address.';
+    if (empty($login_input) || empty($password)) {
+        $error = 'Please enter both your username or school email and password.';
     } elseif (!$pdo) {
-        $error = 'Database service is currently unreachable. Please check connection.';
+        $error = 'Database service is currently unreachable. Please verify that MariaDB is running.';
     } else {
         try {
-            $stmt = $pdo->prepare("SELECT * FROM users WHERE LOWER(email) = LOWER(?) LIMIT 1");
-            $stmt->execute([$email]);
+            // Support both direct email and username format (e.g. "admin" or "admin@iscp.edu.ph")
+            $check_email = $login_input;
+            $fallback_email = strpos($login_input, '@') === false ? $login_input . '@iscp.edu.ph' : $login_input;
+
+            $stmt = $pdo->prepare("
+                SELECT * FROM users 
+                WHERE LOWER(email) = LOWER(?) OR LOWER(email) = LOWER(?) 
+                LIMIT 1
+            ");
+            $stmt->execute([$check_email, $fallback_email]);
             $user = $stmt->fetch();
 
             if ($user && password_verify($password, $user['password_hash'])) {
@@ -62,15 +75,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $_SESSION['user_name'] = $user['name'];
                     $_SESSION['user_email'] = $user['email'];
                     $_SESSION['user_role'] = $user['role'];
+                    $_SESSION['assigned_college'] = $user['assigned_college'] ?? null;
+                    $_SESSION['assigned_office'] = $user['assigned_office'] ?? null;
+                    $_SESSION['assigned_department'] = $user['assigned_department'] ?? null;
 
-                    // Role-based redirection
-                    if (in_array($user['role'], ['admin', 'super_admin'], true)) {
+                    // Role-based redirection according to RBAC architecture
+                    $admin_roles = ['admin', 'super_admin', 'university_admin', 'office_admin', 'college_admin', 'department_admin'];
+                    
+                    if (in_array($user['role'], $admin_roles, true)) {
                         $redirect = $_SESSION['intended_url'] ?? 'admin/index.php';
                         unset($_SESSION['intended_url']);
                         header('Location: ' . $redirect);
                         exit;
+                    } elseif ($user['role'] === 'student') {
+                        $redirect = $_SESSION['intended_url'] ?? 'student/index.php';
+                        unset($_SESSION['intended_url']);
+                        header('Location: ' . $redirect);
+                        exit;
                     } else {
-                        // University, Office, College, Dept Admins & Announcers
+                        // Announcers / Faculty
                         $redirect = $_SESSION['intended_url'] ?? 'announcer/index.php';
                         unset($_SESSION['intended_url']);
                         header('Location: ' . $redirect);
@@ -78,7 +101,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                 }
             } else {
-                $error = 'Invalid email address or password.';
+                $error = 'Invalid username/email address or password.';
             }
         } catch (PDOException $e) {
             error_log("Login error: " . $e->getMessage());
@@ -92,201 +115,492 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Staff & Admin Sign In - School Announcement System</title>
+    <title>Administrator & Staff Sign In - International State College of the Philippines</title>
+    
+    <!-- Professional Typography -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-    <link rel="stylesheet" href="assets/css/admin.css">
+    
     <style>
+        :root {
+            --primary: #0284c7;
+            --primary-dark: #0369a1;
+            --primary-navy: #0f172a;
+            --primary-light: #e0f2fe;
+            --text-main: #0f172a;
+            --text-muted: #64748b;
+            --text-light: #94a3b8;
+            --border-color: #e2e8f0;
+            --card-bg: #ffffff;
+            --radius-md: 10px;
+            --radius-lg: 16px;
+            --radius-full: 9999px;
+            --shadow-card: 0 20px 40px -10px rgba(15, 23, 42, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.4);
+            --transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        *, *::before, *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
         body {
-            background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0369a1 100%);
+            font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
             min-height: 100vh;
             display: flex;
             align-items: center;
             justify-content: center;
             padding: 1.5rem;
+            position: relative;
+            background-color: #0b1329;
+            overflow-x: hidden;
         }
-        .login-card-container {
+
+        /* 
+         * Background Image Layer with Subtle Blue Tint Overlay
+         * Uses assets/images/iscp_school.jpg with reduced opacity
+         * and a rich university-themed blue gradient overlay
+         */
+        .portal-bg-layer {
+            position: fixed;
+            inset: 0;
+            z-index: 0;
+            background-image: url('assets/images/iscp_school.jpg');
+            background-size: cover;
+            background-position: center center;
+            background-repeat: no-repeat;
+            opacity: 0.35; /* Reduced visual intensity */
+            filter: saturate(1.1);
+        }
+
+        .portal-bg-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 1;
+            /* Subtle university-themed blue gradient tint */
+            background: linear-gradient(
+                135deg, 
+                rgba(11, 25, 44, 0.90) 0%, 
+                rgba(15, 39, 74, 0.85) 45%, 
+                rgba(3, 105, 161, 0.78) 100%
+            );
+            backdrop-filter: blur(2px);
+        }
+
+        /* Login Container Wrapper */
+        .login-wrapper {
+            position: relative;
+            z-index: 10;
             width: 100%;
-            max-width: 460px;
+            max-width: 415px;
+            animation: fadeInCard 0.45s ease-out;
         }
+
+        @keyframes fadeInCard {
+            from {
+                opacity: 0;
+                transform: translateY(14px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Primary Login Card Container */
         .login-card {
-            background: #ffffff;
+            background: rgba(255, 255, 255, 0.98);
+            backdrop-filter: blur(12px);
             border-radius: var(--radius-lg);
-            padding: 2.5rem;
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
-            border: 1px solid rgba(255, 255, 255, 0.2);
+            padding: clamp(1.85rem, 5vw, 2.35rem) clamp(1.5rem, 4vw, 2rem);
+            box-shadow: var(--shadow-card);
+            border: 1px solid rgba(255, 255, 255, 0.85);
+            position: relative;
+            overflow: hidden; /* Cleanly clips top accent bar to the card's rounded corners */
         }
+
+        /* Top Accent University Bar - Perfectly flush with the top border curve */
+        .login-card::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, #0284c7, #38bdf8, #0369a1);
+            z-index: 2;
+        }
+
+        /* Brand & Logo Section */
         .login-brand {
             text-align: center;
             margin-bottom: 2rem;
         }
-        .login-logo-circle {
-            width: 58px;
-            height: 58px;
-            background: var(--primary-gradient);
-            border-radius: var(--radius-md);
+
+        /* University Logo Styling - Circular border */
+        .login-logo-container {
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            font-size: 1.75rem;
-            color: #ffffff;
-            margin-bottom: 0.75rem;
-            box-shadow: 0 8px 16px rgba(2, 132, 199, 0.35);
+            margin-bottom: 1.15rem;
+            width: 94px;
+            height: 94px;
+            border-radius: 50%;
+            background: #ffffff;
+            border: 2px solid #bae6fd;
+            box-shadow: 0 4px 14px rgba(2, 132, 199, 0.14);
+            padding: 4px;
+            transition: var(--transition);
         }
+
+        .login-logo-container:hover {
+            border-color: #0284c7;
+            transform: scale(1.03);
+            box-shadow: 0 6px 20px rgba(2, 132, 199, 0.22);
+        }
+
+        .university-logo-img {
+            width: 100%;
+            height: 100%;
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+            border-radius: 50%;
+            display: block;
+        }
+
         .login-title {
-            font-size: 1.5rem;
+            font-size: 1.55rem;
             font-weight: 800;
-            color: var(--text-main);
-            letter-spacing: -0.02em;
+            color: var(--primary-navy);
+            letter-spacing: -0.025em;
+            line-height: 1.25;
         }
+
         .login-subtitle {
             font-size: 0.88rem;
             color: var(--text-muted);
-            margin-top: 0.25rem;
+            margin-top: 0.35rem;
+            font-weight: 500;
         }
-        .role-badges-banner {
+
+        /* Alert Callouts */
+        .login-alert {
             display: flex;
-            gap: 0.5rem;
-            justify-content: center;
-            margin-top: 0.75rem;
+            align-items: flex-start;
+            gap: 0.75rem;
+            padding: 0.85rem 1rem;
+            border-radius: var(--radius-md);
+            font-size: 0.86rem;
+            line-height: 1.45;
+            margin-bottom: 1.5rem;
+            animation: fadeInCard 0.25s ease;
         }
-        .role-badge-pill {
-            font-size: 0.72rem;
-            font-weight: 700;
-            padding: 0.2rem 0.6rem;
-            border-radius: var(--radius-full);
-            background: #e0f2fe;
+
+        .login-alert-danger {
+            background-color: #fef2f2;
+            border: 1px solid #fecaca;
+            color: #b91c1c;
+        }
+
+        .login-alert-info {
+            background-color: #f0f9ff;
+            border: 1px solid #bae6fd;
             color: #0369a1;
         }
-        .input-icon-wrapper {
+
+        .login-alert i {
+            font-size: 1.1rem;
+            flex-shrink: 0;
+            margin-top: 0.1rem;
+        }
+
+        /* Form Group Styles */
+        .form-group {
+            margin-bottom: 1.35rem;
+        }
+
+        .form-label {
+            display: block;
+            font-size: 0.85rem;
+            font-weight: 700;
+            color: #334155;
+            margin-bottom: 0.45rem;
+        }
+
+        /* Email / Username Input Group with Prefix/Suffix indicator */
+        .input-group {
+            display: flex;
+            align-items: stretch;
             position: relative;
-        }
-        .input-icon-wrapper i {
-            position: absolute;
-            left: 1rem;
-            top: 50%;
-            transform: translateY(-50%);
-            color: var(--text-light);
-            font-size: 0.95rem;
-        }
-        .input-icon-wrapper input {
-            padding-left: 2.75rem;
-        }
-        .btn-login-submit {
-            width: 100%;
-            padding: 0.75rem;
-            font-size: 0.98rem;
-            margin-top: 0.5rem;
-        }
-        .demo-credentials-box {
-            margin-top: 1.75rem;
-            padding: 1rem;
-            background: #f8fafc;
-            border: 1px dashed #cbd5e1;
+            border: 1.5px solid #cbd5e1;
             border-radius: var(--radius-md);
-            font-size: 0.8rem;
-            color: #475569;
+            background: #ffffff;
+            transition: var(--transition);
+            overflow: hidden;
         }
-        .demo-credentials-box code {
-            background: #e2e8f0;
-            padding: 0.15rem 0.35rem;
-            border-radius: 4px;
-            color: #0f172a;
-            font-weight: 600;
+
+        .input-group:focus-within {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3.5px rgba(2, 132, 199, 0.15);
         }
-        .back-link {
-            text-align: center;
-            margin-top: 1.5rem;
-        }
-        .back-link a {
-            color: rgba(255, 255, 255, 0.8);
-            text-decoration: none;
-            font-size: 0.88rem;
-            display: inline-flex;
+
+        .input-group-addon {
+            display: flex;
             align-items: center;
-            gap: 0.5rem;
+            justify-content: center;
+            padding: 0 0.95rem;
+            color: var(--text-muted);
+            background: #f8fafc;
+            border-right: 1px solid #e2e8f0;
+            font-size: 0.95rem;
+            flex-shrink: 0;
+        }
+
+        .input-group input {
+            flex: 1;
+            border: none;
+            outline: none;
+            padding: 0.75rem 0.95rem;
+            font-family: inherit;
+            font-size: 0.95rem;
+            color: var(--text-main);
+            background: transparent;
+            min-width: 0;
+        }
+
+        .input-group input::placeholder {
+            color: #94a3b8;
+            font-size: 0.88rem;
+        }
+
+        /* Password Visibility Toggle Button */
+        .btn-password-toggle {
+            background: transparent;
+            border: none;
+            outline: none;
+            color: #64748b;
+            padding: 0 0.95rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.95rem;
             transition: var(--transition);
         }
-        .back-link a:hover {
+
+        .btn-password-toggle:hover {
+            color: var(--primary);
+        }
+
+        /* Submit Button */
+        .btn-login-submit {
+            width: 100%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.65rem;
+            padding: 0.82rem 1.25rem;
+            border-radius: var(--radius-md);
+            font-family: inherit;
+            font-size: 0.98rem;
+            font-weight: 700;
             color: #ffffff;
+            background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+            border: none;
+            cursor: pointer;
+            box-shadow: 0 8px 18px rgba(2, 132, 199, 0.32);
+            transition: var(--transition);
+            margin-top: 0.5rem;
+        }
+
+        .btn-login-submit:hover {
+            background: linear-gradient(135deg, #0369a1 0%, #075985 100%);
+            box-shadow: 0 10px 22px rgba(2, 132, 199, 0.42);
+            transform: translateY(-1px);
+        }
+
+        .btn-login-submit:active {
+            transform: translateY(1px);
+            box-shadow: 0 4px 10px rgba(2, 132, 199, 0.3);
+        }
+
+        /* Back to Public Announcement Board Link (Upper Left) */
+        .top-back-link {
+            position: fixed;
+            top: 1.5rem;
+            left: 1.5rem;
+            z-index: 50;
+        }
+
+        .top-back-link a {
+            color: rgba(255, 255, 255, 0.9);
+            text-decoration: none;
+            font-size: 0.88rem;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.55rem;
+            transition: var(--transition);
+            padding: 0.55rem 1.05rem;
+            border-radius: var(--radius-full);
+            background: rgba(15, 23, 42, 0.65);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+        }
+
+        .top-back-link a:hover {
+            color: #ffffff;
+            background: rgba(2, 132, 199, 0.85);
+            border-color: rgba(255, 255, 255, 0.4);
+            transform: translateY(-1px);
+            box-shadow: 0 6px 18px rgba(2, 132, 199, 0.35);
+        }
+
+        /* Responsive adjustments */
+        @media (max-width: 480px) {
+            body {
+                padding: 1rem;
+            }
+            .login-card {
+                padding: 1.75rem 1.25rem;
+            }
+            .login-title {
+                font-size: 1.35rem;
+            }
+            .login-logo-container {
+                width: 80px;
+                height: 80px;
+            }
+
         }
     </style>
 </head>
 <body>
 
-<div class="login-card-container">
-    <div class="login-card">
-        <div class="login-brand">
-            <div class="login-logo-circle">
-                <i class="fa-solid fa-graduation-cap"></i>
-            </div>
-            <h1 class="login-title">Portal Sign In</h1>
-            <p class="login-subtitle">International State College of the Philippines</p>
-            <div class="role-badges-banner">
-                <span class="role-badge-pill"><i class="fa-solid fa-shield-halved"></i> Administrator</span>
-                <span class="role-badge-pill"><i class="fa-solid fa-chalkboard-user"></i> Teachers & Staff</span>
-            </div>
-        </div>
-
-        <?php if (!empty($error)): ?>
-            <div class="alert alert-danger" style="margin-bottom: 1.25rem; font-size: 0.85rem; padding: 0.75rem 1rem;">
-                <i class="fa-solid fa-circle-exclamation"></i>
-                <div class="alert-text"><?= h($error) ?></div>
-            </div>
-        <?php endif; ?>
-
-        <?php if (!empty($info)): ?>
-            <div class="alert alert-info" style="margin-bottom: 1.25rem; font-size: 0.85rem; padding: 0.75rem 1rem;">
-                <i class="fa-solid fa-circle-info"></i>
-                <div class="alert-text"><?= h($info) ?></div>
-            </div>
-        <?php endif; ?>
-
-        <form method="POST" action="login.php" class="login-form">
-            <?= csrf_field() ?>
-            <div class="form-group">
-                <label for="email" class="form-label">School Email</label>
-                <div class="input-icon-wrapper">
-                    <i class="fa-solid fa-envelope"></i>
-                    <input type="email" id="email" name="email" class="form-input" placeholder="e.g. admin@iscp.edu.ph or teacher@iscp.edu.ph" required autofocus value="<?= h($_POST['email'] ?? '') ?>">
-                </div>
-            </div>
-
-            <div class="form-group">
-                <label for="password" class="form-label">Password</label>
-                <div class="input-icon-wrapper">
-                    <i class="fa-solid fa-lock"></i>
-                    <input type="password" id="password" name="password" class="form-input" placeholder="Enter your password" required>
-                </div>
-            </div>
-
-            <button type="submit" class="btn btn-primary btn-login-submit">
-                <i class="fa-solid fa-right-to-bracket"></i>
-                Sign In to Portal
-            </button>
-        </form>
-
-        <div class="demo-credentials-box">
-            <div style="font-weight: 700; margin-bottom: 0.35rem;"><i class="fa-solid fa-key"></i> Available Demo Accounts:</div>
-            <div style="margin-bottom: 0.25rem;">
-                👑 <strong>Admin:</strong> <code>admin@iscp.edu.ph</code> / <code>AdminPass123!</code>
-            </div>
-            <div>
-                📢 <strong>Announcer / Teacher:</strong> <code>announcer@iscp.edu.ph</code> / <code>AnnouncerPass123!</code>
-            </div>
-        </div>
-    </div>
-
-    <div class="back-link">
-        <a href="index.php">
+    <!-- Back to Public Announcement Board (Upper Left) -->
+    <div class="top-back-link">
+        <a href="index.php" title="Back to Public Announcement Board">
             <i class="fa-solid fa-arrow-left"></i>
-            Back to Public Announcement Board
+            <span>Back to Public Announcement Board</span>
         </a>
     </div>
-</div>
 
+    <!-- Subtle Blue Overlay and Muted Background Image -->
+    <div class="portal-bg-layer" aria-hidden="true"></div>
+    <div class="portal-bg-overlay" aria-hidden="true"></div>
+
+    <div class="login-wrapper">
+        <div class="login-card">
+            <!-- Brand & Official University Logo Header -->
+            <div class="login-brand">
+                <div class="login-logo-container" title="International State College of the Philippines">
+                    <img 
+                        src="assets/images/iscp_logo.png" 
+                        alt="International State College of the Philippines Official Logo" 
+                        class="university-logo-img"
+                    >
+                </div>
+                <h1 class="login-title">Portal Sign In</h1>
+                <p class="login-subtitle">International State College of the Philippines</p>
+            </div>
+
+            <!-- Feedback Alerts -->
+            <?php if (!empty($error)): ?>
+                <div class="login-alert login-alert-danger" role="alert">
+                    <i class="fa-solid fa-circle-exclamation"></i>
+                    <div><?= h($error) ?></div>
+                </div>
+            <?php endif; ?>
+
+            <?php if (!empty($info)): ?>
+                <div class="login-alert login-alert-info" role="status">
+                    <i class="fa-solid fa-circle-info"></i>
+                    <div><?= h($info) ?></div>
+                </div>
+            <?php endif; ?>
+
+            <!-- Sign In Form -->
+            <form method="POST" action="login.php" class="login-form" novalidate>
+                <?= csrf_field() ?>
+
+                <!-- Username / Email Input -->
+                <div class="form-group">
+                    <label for="email" class="form-label">Username or School Email</label>
+                    <div class="input-group">
+                        <div class="input-group-addon" aria-hidden="true">
+                            <i class="fa-solid fa-at"></i>
+                        </div>
+                        <input 
+                            type="text" 
+                            id="email" 
+                            name="email" 
+                            required 
+                            autofocus 
+                            autocomplete="username"
+                            placeholder="example@iscp.edu.ph"
+                            value="<?= h($_POST['email'] ?? '') ?>"
+                        >
+                    </div>
+                </div>
+
+                <!-- Password Input with Masked Characters & Visibility Toggle -->
+                <div class="form-group">
+                    <label for="password" class="form-label">Password</label>
+                    <div class="input-group">
+                        <div class="input-group-addon" aria-hidden="true">
+                            <i class="fa-solid fa-lock"></i>
+                        </div>
+                        <input 
+                            type="password" 
+                            id="password" 
+                            name="password" 
+                            required 
+                            autocomplete="current-password"
+                            placeholder="Enter your account password"
+                        >
+                        <button 
+                            type="button" 
+                            class="btn-password-toggle" 
+                            id="togglePasswordBtn" 
+                            aria-label="Toggle password visibility"
+                            title="Show/Hide password"
+                        >
+                            <i class="fa-solid fa-eye" id="togglePasswordIcon"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Submit Button -->
+                <button type="submit" class="btn-login-submit">
+                    <i class="fa-solid fa-right-to-bracket"></i>
+                    <span>Sign In to Portal</span>
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Interactive Password Visibility Toggle Script -->
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const toggleBtn = document.getElementById('togglePasswordBtn');
+            const passwordInput = document.getElementById('password');
+            const toggleIcon = document.getElementById('togglePasswordIcon');
+
+            if (toggleBtn && passwordInput && toggleIcon) {
+                toggleBtn.addEventListener('click', function () {
+                    const isPassword = passwordInput.getAttribute('type') === 'password';
+                    passwordInput.setAttribute('type', isPassword ? 'text' : 'password');
+                    toggleIcon.classList.toggle('fa-eye', !isPassword);
+                    toggleIcon.classList.toggle('fa-eye-slash', isPassword);
+                    passwordInput.focus();
+                });
+            }
+        });
+    </script>
 </body>
 </html>
-

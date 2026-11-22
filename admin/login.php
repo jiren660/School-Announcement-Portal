@@ -6,10 +6,14 @@
 
 session_start();
 if (!empty($_SESSION['user_id']) && !empty($_SESSION['user_role'])) {
-    if ($_SESSION['user_role'] === 'admin') {
+    $role = $_SESSION['user_role'];
+    if (in_array($role, ['admin', 'super_admin', 'university_admin', 'office_admin', 'college_admin', 'department_admin'], true)) {
         header('Location: index.php');
         exit;
-    } elseif ($_SESSION['user_role'] === 'announcer') {
+    } elseif ($role === 'student') {
+        header('Location: ../student/index.php');
+        exit;
+    } else {
         header('Location: ../announcer/index.php');
         exit;
     }
