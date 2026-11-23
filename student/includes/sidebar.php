@@ -41,6 +41,14 @@ $currentScript = basename($_SERVER['PHP_SELF']);
                 </a>
             </li>
 
+            <!-- Dedicated Personalized Academic Feed (Requirement 7) -->
+            <li class="nav-item">
+                <a href="index.php?type=my_affiliation" class="nav-link <?= ($activeType === 'my_affiliation') ? 'active' : '' ?>" style="background: rgba(2, 132, 199, 0.12); border-left: 3px solid #0284c7;">
+                    <i class="fa-solid fa-graduation-cap nav-icon" style="color: #0284c7;"></i>
+                    <span class="nav-text" style="font-weight: 700; color: #0284c7;">My College &amp; Dept</span>
+                </a>
+            </li>
+
             <!-- 2. All Announcements -->
             <li class="nav-item">
                 <a href="index.php?type=all" class="nav-link <?= ($activeType === 'all') ? 'active' : '' ?>">

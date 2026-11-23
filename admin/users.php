@@ -7,14 +7,15 @@
 
 define('APP_INIT', true);
 require_once __DIR__ . '/includes/auth.php';
-require_admin();
+require_specific_role([ROLE_SUPER_ADMIN, 'admin', ROLE_COLLEGE_ADMIN]);
 
-$page_title = 'User Management';
-$page_subtitle = 'Manage announcer accounts, administrative access, and credentials.';
-$activeNav = 'users.php';
-
-$pdo = get_db();
 $currentUser = current_user();
+$currentRole = current_user_role();
+$page_title = ($currentRole === ROLE_COLLEGE_ADMIN) ? 'Department Users Management' : 'User Management';
+$page_subtitle = ($currentRole === ROLE_COLLEGE_ADMIN) 
+    ? 'Manage Department Administrators under ' . h($currentUser['assigned_college']) . '.'
+    : 'Manage announcer accounts, administrative access, and credentials.';
+$activeNav = 'users.php';
 
 // ====================================================================
 // Handle POST Requests (Add, Edit, Toggle Status, Reset Password)
@@ -35,11 +36,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $email = trim($_POST['email'] ?? '');
         $password = $_POST['password'] ?? '';
         $role = trim($_POST['role'] ?? 'college_admin');
+        
+        $assigned_office = ($role === 'office_admin') ? trim($_POST['assigned_office'] ?? '') : null;
         $assigned_college = ($role === 'college_admin') ? trim($_POST['assigned_college'] ?? '') : null;
+        $assigned_department = ($role === 'department_admin') ? trim($_POST['assigned_department'] ?? '') : null;
         $status = 'active'; // Default to active upon creation
 
         // Allowed roles when creating accounts through this form
         $allowed_add_roles = ['university_admin', 'office_admin', 'college_admin', 'department_admin'];
+
+        // Special Scoping for College Administrator:
+        if ($currentRole === ROLE_COLLEGE_ADMIN) {
+            $role = 'department_admin';
+            $assigned_college = $currentUser['assigned_college'] ?? '';
+            $status = 'pending_approval'; // Newly created department users start as pending_approval
+
+            // Verify department belongs to this college
+            if ($pdo) {
+                $vStmt = $pdo->prepare("SELECT id FROM departments WHERE name = ? AND college = ?");
+                $vStmt->execute([$assigned_department, $assigned_college]);
+                if (!$vStmt->fetch()) {
+                    set_flash('danger', 'The selected department does not belong to your authorized college.');
+                    header('Location: users.php');
+                    exit;
+                }
+            }
+        }
 
         // Validation
         if (empty($name) || strlen($name) < 2) {
@@ -50,8 +72,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             set_flash('danger', 'Password must be at least 6 characters long.');
         } elseif (!in_array($role, $allowed_add_roles, true)) {
             set_flash('danger', 'Invalid administrator role selected.');
+        } elseif ($role === 'office_admin' && empty($assigned_office)) {
+            set_flash('danger', 'Please select the specific Office for the Office Administrator.');
         } elseif ($role === 'college_admin' && empty($assigned_college)) {
             set_flash('danger', 'Please select the specific College for the College Administrator.');
+        } elseif ($role === 'department_admin' && empty($assigned_department)) {
+            set_flash('danger', 'Please select the specific Department for the Department Administrator.');
         } else {
             try {
                 // Check email uniqueness
@@ -62,11 +88,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 } else {
                     $password_hash = password_hash($password, PASSWORD_DEFAULT);
                     $ins = $pdo->prepare("
-                        INSERT INTO users (name, email, password_hash, role, assigned_college, status, created_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        INSERT INTO users (name, email, password_hash, role, assigned_college, assigned_office, assigned_department, status, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ");
-                    $ins->execute([$name, $email, $password_hash, $role, $assigned_college, $status, date('Y-m-d H:i:s')]);
-                    set_flash('success', 'User account for "' . h($name) . '" (' . format_role_label($role, $assigned_college) . ') has been created successfully.');
+                    $ins->execute([$name, $email, $password_hash, $role, $assigned_college, $assigned_office, $assigned_department, $status, date('Y-m-d H:i:s')]);
+                    $unitLabel = $assigned_office ?: ($assigned_college ?: $assigned_department);
+                    
+                    if ($status === 'pending_approval') {
+                        set_flash('success', 'Department Administrator account for "' . h($name) . '" has been created and submitted for Super Administrator approval.');
+                    } else {
+                        set_flash('success', 'User account for "' . h($name) . '" (' . format_role_label($role, $unitLabel) . ') has been created successfully.');
+                    }
                 }
             } catch (PDOException $e) {
                 set_flash('danger', 'Database error creating user: ' . $e->getMessage());
@@ -82,7 +114,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $name = trim($_POST['name'] ?? '');
         $email = trim($_POST['email'] ?? '');
         $role = trim($_POST['role'] ?? 'college_admin');
+        $assigned_office = ($role === 'office_admin') ? trim($_POST['assigned_office'] ?? '') : null;
         $assigned_college = ($role === 'college_admin') ? trim($_POST['assigned_college'] ?? '') : null;
+        $assigned_department = ($role === 'department_admin') ? trim($_POST['assigned_department'] ?? '') : null;
         $status = trim($_POST['status'] ?? 'active');
 
         if ($id <= 0) {
@@ -93,8 +127,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             set_flash('danger', 'A valid email address is required.');
         } elseif (!in_array($role, $allowed_roles, true)) {
             set_flash('danger', 'Invalid role selected.');
+        } elseif ($role === 'office_admin' && empty($assigned_office)) {
+            set_flash('danger', 'Please select the specific Office for the Office Administrator.');
         } elseif ($role === 'college_admin' && empty($assigned_college)) {
             set_flash('danger', 'Please select the specific College for the College Administrator.');
+        } elseif ($role === 'department_admin' && empty($assigned_department)) {
+            set_flash('danger', 'Please select the specific Department for the Department Administrator.');
         } elseif (!in_array($status, ['active', 'inactive'], true)) {
             set_flash('danger', 'Invalid status selected.');
         } else {
@@ -109,8 +147,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if ($checkStmt->fetch()) {
                         set_flash('danger', 'The email address "' . h($email) . '" is already registered to another user.');
                     } else {
-                        $upd = $pdo->prepare("UPDATE users SET name = ?, email = ?, role = ?, assigned_college = ?, status = ? WHERE id = ?");
-                        $upd->execute([$name, $email, $role, $assigned_college, $status, $id]);
+                        $upd = $pdo->prepare("UPDATE users SET name = ?, email = ?, role = ?, assigned_college = ?, assigned_office = ?, assigned_department = ?, status = ? WHERE id = ?");
+                        $upd->execute([$name, $email, $role, $assigned_college, $assigned_office, $assigned_department, $status, $id]);
 
                         if ($id === (int)$currentUser['id']) {
                             $_SESSION['user_name'] = $name;
@@ -194,6 +232,83 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         header('Location: users.php');
         exit;
     }
+
+    // 5. DELETE USER (Allowed only for deactivated accounts, cannot delete self or super admin)
+    elseif ($action === 'delete') {
+        $id = (int)($_POST['id'] ?? 0);
+
+        if ($id <= 0) {
+            set_flash('danger', 'Invalid user ID.');
+        } elseif ($id === (int)$currentUser['id']) {
+            set_flash('danger', 'You cannot delete your own account.');
+        } else {
+            try {
+                $stmt = $pdo->prepare("SELECT name, role, status FROM users WHERE id = ?");
+                $stmt->execute([$id]);
+                $user = $stmt->fetch();
+
+                if (!$user) {
+                    set_flash('danger', 'User account not found.');
+                } elseif (in_array($user['role'], ['super_admin', 'admin'], true)) {
+                    set_flash('danger', 'Super Administrator accounts cannot be deleted.');
+                } elseif ($user['status'] !== 'inactive') {
+                    set_flash('danger', 'Only deactivated (inactive) accounts can be deleted. Please deactivate the account first.');
+                } else {
+                    $del = $pdo->prepare("DELETE FROM users WHERE id = ?");
+                    $del->execute([$id]);
+                    set_flash('success', 'User account "' . h($user['name']) . '" has been permanently deleted.');
+                }
+            } catch (PDOException $e) {
+                set_flash('danger', 'Database error deleting user: ' . $e->getMessage());
+            }
+        }
+        header('Location: users.php');
+        exit;
+    }
+
+    // 6. APPROVE USER REGISTRATION (Super Admin only)
+    elseif ($action === 'approve_user') {
+        if (!is_super_admin()) {
+            set_flash('danger', 'Only Super Administrators can approve user accounts.');
+        } else {
+            $id = (int)($_POST['id'] ?? 0);
+            try {
+                $stmt = $pdo->prepare("UPDATE users SET status = 'active' WHERE id = ? AND status = 'pending_approval'");
+                $stmt->execute([$id]);
+                if ($stmt->rowCount() > 0) {
+                    set_flash('success', 'Department user registration has been approved and activated.');
+                } else {
+                    set_flash('warning', 'User account not found or already processed.');
+                }
+            } catch (PDOException $e) {
+                set_flash('danger', 'Database error approving user: ' . $e->getMessage());
+            }
+        }
+        header('Location: users.php');
+        exit;
+    }
+
+    // 7. REJECT USER REGISTRATION (Super Admin only)
+    elseif ($action === 'reject_user') {
+        if (!is_super_admin()) {
+            set_flash('danger', 'Only Super Administrators can reject user accounts.');
+        } else {
+            $id = (int)($_POST['id'] ?? 0);
+            try {
+                $stmt = $pdo->prepare("UPDATE users SET status = 'rejected' WHERE id = ? AND status = 'pending_approval'");
+                $stmt->execute([$id]);
+                if ($stmt->rowCount() > 0) {
+                    set_flash('info', 'Department user registration has been rejected.');
+                } else {
+                    set_flash('warning', 'User account not found or already processed.');
+                }
+            } catch (PDOException $e) {
+                set_flash('danger', 'Database error rejecting user: ' . $e->getMessage());
+            }
+        }
+        header('Location: users.php');
+        exit;
+    }
 }
 
 // Fetch users list with optional search and filters
@@ -202,10 +317,27 @@ $filter_role = trim($_GET['role'] ?? '');
 $filter_status = trim($_GET['status'] ?? '');
 $users_list = [];
 
+$registered_offices = [];
+$registered_colleges = [];
+$registered_departments = [];
+
 if ($pdo) {
     try {
         $where = [];
         $params = [];
+
+        // Scoping: If College Admin, show only department users under their assigned college
+        if ($currentRole === ROLE_COLLEGE_ADMIN) {
+            $myCollege = $currentUser['assigned_college'] ?? '';
+            $where[] = "assigned_college = ?";
+            $where[] = "role = 'department_admin'";
+            $params[] = $myCollege;
+        } else {
+            // Exclude Super Admin accounts and the logged-in administrator from the managed directory list
+            $where[] = "role NOT IN ('super_admin', 'admin')";
+            $where[] = "id != ?";
+            $params[] = (int)$currentUser['id'];
+        }
 
         if (!empty($search)) {
             $where[] = "(name LIKE ? OR email LIKE ?)";
@@ -225,10 +357,22 @@ if ($pdo) {
         }
 
         $whereClause = !empty($where) ? 'WHERE ' . implode(' AND ', $where) : '';
-        $sql = "SELECT id, name, email, role, assigned_college, status, created_at FROM users {$whereClause} ORDER BY role ASC, name ASC";
+        $sql = "SELECT id, name, email, role, assigned_college, assigned_office, assigned_department, status, created_at FROM users {$whereClause} ORDER BY (status = 'pending_approval') DESC, role ASC, name ASC";
         $stmt = $pdo->prepare($sql);
         $stmt->execute($params);
         $users_list = $stmt->fetchAll();
+
+        // Fetch dynamic units registered by Super Admin in Office, College, and Department Management
+        $registered_offices = $pdo->query("SELECT id, code, name FROM offices ORDER BY name ASC")->fetchAll();
+        $registered_colleges = $pdo->query("SELECT id, code, name FROM colleges ORDER BY name ASC")->fetchAll();
+        
+        if ($currentRole === ROLE_COLLEGE_ADMIN) {
+            $dStmt = $pdo->prepare("SELECT id, code, name, college FROM departments WHERE college = ? ORDER BY name ASC");
+            $dStmt->execute([$currentUser['assigned_college'] ?? '']);
+            $registered_departments = $dStmt->fetchAll();
+        } else {
+            $registered_departments = $pdo->query("SELECT id, code, name, college FROM departments ORDER BY name ASC")->fetchAll();
+        }
 
     } catch (PDOException $e) {
         set_flash('danger', 'Error retrieving users: ' . $e->getMessage());
@@ -262,11 +406,11 @@ require_once __DIR__ . '/includes/header.php';
                 </div>
 
                 <select name="role" class="form-select-filter" onchange="this.form.submit()">
-                    <option value="">All Roles</option>
-                    <option value="super_admin" <?= $filter_role === 'super_admin' ? 'selected' : '' ?>>Super Administrator</option>
+                    <option value="">All Managed Roles</option>
                     <option value="university_admin" <?= $filter_role === 'university_admin' ? 'selected' : '' ?>>University Administrator</option>
                     <option value="office_admin" <?= $filter_role === 'office_admin' ? 'selected' : '' ?>>Office Administrator</option>
                     <option value="college_admin" <?= $filter_role === 'college_admin' ? 'selected' : '' ?>>College Administrator</option>
+                    <option value="department_admin" <?= $filter_role === 'department_admin' ? 'selected' : '' ?>>Department Administrator</option>
                 </select>
 
                 <select name="status" class="form-select-filter" onchange="this.form.submit()">
@@ -360,17 +504,38 @@ require_once __DIR__ . '/includes/header.php';
                                         <i class="fa-solid <?= $roleIcon ?>"></i>
                                         <?= h(format_role_label($u['role'])) ?>
                                     </span>
-                                    <?php if ($u['role'] === 'college_admin' && !empty($u['assigned_college'])): ?>
+                                    <?php if ($u['role'] === 'office_admin' && !empty($u['assigned_office'])): ?>
+                                        <div style="font-size: 0.74rem; color: #0284c7; font-weight: 600; margin-top: 0.25rem;">
+                                            <i class="fa-solid fa-building-columns"></i> <?= h($u['assigned_office']) ?>
+                                        </div>
+                                    <?php elseif ($u['role'] === 'college_admin' && !empty($u['assigned_college'])): ?>
                                         <div style="font-size: 0.74rem; color: #b45309; font-weight: 600; margin-top: 0.25rem;">
-                                            <i class="fa-solid fa-building-user"></i> <?= h($u['assigned_college']) ?>
+                                            <i class="fa-solid fa-graduation-cap"></i> <?= h($u['assigned_college']) ?>
+                                        </div>
+                                    <?php elseif ($u['role'] === 'department_admin' && !empty($u['assigned_department'])): ?>
+                                        <div style="font-size: 0.74rem; color: #7e22ce; font-weight: 600; margin-top: 0.25rem;">
+                                            <i class="fa-solid fa-network-wired"></i> <?= h($u['assigned_department']) ?>
                                         </div>
                                     <?php endif; ?>
                                 </td>
                                 <td>
-                                    <span class="badge badge-status-<?= h($u['status']) ?>">
-                                        <i class="fa-solid <?= $u['status'] === 'active' ? 'fa-circle-check' : 'fa-circle-xmark' ?>"></i>
-                                        <?= ucfirst(h($u['status'])) ?>
-                                    </span>
+                                    <?php if ($u['status'] === 'active'): ?>
+                                        <span class="badge badge-status-active">
+                                            <i class="fa-solid fa-circle-check"></i> Active
+                                        </span>
+                                    <?php elseif ($u['status'] === 'pending_approval'): ?>
+                                        <span class="badge" style="background: #fef3c7; color: #b45309; border: 1px solid #fde68a;">
+                                            <i class="fa-solid fa-clock"></i> Pending Approval
+                                        </span>
+                                    <?php elseif ($u['status'] === 'rejected'): ?>
+                                        <span class="badge" style="background: #fee2e2; color: #991b1b; border: 1px solid #fecaca;">
+                                            <i class="fa-solid fa-circle-xmark"></i> Rejected
+                                        </span>
+                                    <?php else: ?>
+                                        <span class="badge badge-status-inactive">
+                                            <i class="fa-solid fa-circle-xmark"></i> Inactive
+                                        </span>
+                                    <?php endif; ?>
                                 </td>
                                 <td>
                                     <span title="<?= h(format_datetime($u['created_at'])) ?>">
@@ -379,6 +544,26 @@ require_once __DIR__ . '/includes/header.php';
                                 </td>
                                 <td style="text-align: right;">
                                     <div class="action-buttons" style="justify-content: flex-end;">
+                                        <?php if ($u['status'] === 'pending_approval' && is_super_admin()): ?>
+                                            <!-- Super Admin Quick Approve / Reject for Pending Users -->
+                                            <form method="POST" action="users.php" style="display:inline;">
+                                                <?= csrf_field() ?>
+                                                <input type="hidden" name="action" value="approve_user">
+                                                <input type="hidden" name="id" value="<?= (int)$u['id'] ?>">
+                                                <button type="submit" class="btn btn-success btn-sm" title="Approve Registration">
+                                                    <i class="fa-solid fa-check"></i> Approve
+                                                </button>
+                                            </form>
+                                            <form method="POST" action="users.php" style="display:inline;">
+                                                <?= csrf_field() ?>
+                                                <input type="hidden" name="action" value="reject_user">
+                                                <input type="hidden" name="id" value="<?= (int)$u['id'] ?>">
+                                                <button type="submit" class="btn btn-outline-danger btn-sm" title="Reject Registration">
+                                                    <i class="fa-solid fa-xmark"></i> Reject
+                                                </button>
+                                            </form>
+                                        <?php endif; ?>
+
                                         <!-- Edit User Button -->
                                         <button type="button" class="btn btn-outline btn-sm" onclick="openEditModal(<?= h(json_encode($u)) ?>)" title="Edit account details">
                                             <i class="fa-solid fa-pen-to-square"></i> Edit
@@ -395,9 +580,18 @@ require_once __DIR__ . '/includes/header.php';
                                                 <button type="button" class="btn btn-outline-danger btn-sm" onclick="openToggleStatusModal(<?= (int)$u['id'] ?>, <?= h(json_encode($u['name'])) ?>, 'deactivate')" title="Deactivate user">
                                                     <i class="fa-solid fa-user-slash"></i> Deactivate
                                                 </button>
-                                            <?php else: ?>
+                                            <?php elseif ($u['status'] === 'inactive'): ?>
                                                 <button type="button" class="btn btn-success btn-sm" onclick="openToggleStatusModal(<?= (int)$u['id'] ?>, <?= h(json_encode($u['name'])) ?>, 'activate')" title="Activate user">
                                                     <i class="fa-solid fa-user-check"></i> Activate
+                                                </button>
+                                                <!-- Delete button: only available when account is deactivated -->
+                                                <button type="button" class="btn btn-outline-danger btn-sm" onclick="openDeleteUserModal(<?= (int)$u['id'] ?>, <?= h(json_encode($u['name'])) ?>)" title="Permanently delete deactivated user">
+                                                    <i class="fa-solid fa-trash"></i> Delete
+                                                </button>
+                                            <?php elseif ($u['status'] === 'rejected'): ?>
+                                                <!-- Delete button for rejected registration -->
+                                                <button type="button" class="btn btn-outline-danger btn-sm" onclick="openDeleteUserModal(<?= (int)$u['id'] ?>, <?= h(json_encode($u['name'])) ?>)" title="Permanently delete rejected registration">
+                                                    <i class="fa-solid fa-trash"></i> Delete
                                                 </button>
                                             <?php endif; ?>
                                         <?php endif; ?>
@@ -449,32 +643,98 @@ require_once __DIR__ . '/includes/header.php';
                     <div class="form-hint">Password will be securely hashed with bcrypt.</div>
                 </div>
 
-                <div class="form-group" style="margin-bottom: 0;">
-                    <label for="add_role" class="form-label">Account Role <span class="required">*</span></label>
-                    <select id="add_role" name="role" class="form-select" onchange="toggleCollegeField('add')" required>
-                        <option value="university_admin" selected>University Administrator</option>
-                        <option value="office_admin">Office Administrator</option>
-                        <option value="college_admin">College Administrator</option>
-                        <option value="department_admin">Department Administrator</option>
-                    </select>
-                </div>
+                <?php if ($currentRole === ROLE_COLLEGE_ADMIN): ?>
+                    <input type="hidden" name="role" value="department_admin">
+                    <input type="hidden" name="assigned_college" value="<?= h($currentUser['assigned_college']) ?>">
+                    
+                    <div class="form-group" style="margin-bottom: 1rem;">
+                        <label class="form-label">Authorized College</label>
+                        <input type="text" class="form-input" value="<?= h($currentUser['assigned_college']) ?>" readonly style="background: #f8fafc; font-weight: 600;">
+                    </div>
 
-                <!-- Specific College Field (strictly shown ONLY when College Administrator is selected) -->
-                <div class="form-group" id="add_college_wrapper" style="margin-top: 1rem; margin-bottom: 0; display: none;">
-                    <label for="add_assigned_college" class="form-label">Select Assigned College <span class="required">*</span></label>
-                    <select id="add_assigned_college" name="assigned_college" class="form-select">
-                        <option value="">-- Choose College --</option>
-                        <option value="College of Nursing and Allied Health Sciences">College of Nursing and Allied Health Sciences</option>
-                        <option value="College of Engineering and Architecture">College of Engineering and Architecture</option>
-                        <option value="College of Computer Studies">College of Computer Studies</option>
-                        <option value="College of Arts and Sciences">College of Arts and Sciences</option>
-                        <option value="College of Business and Accountancy">College of Business and Accountancy</option>
-                        <option value="College of Education">College of Education</option>
-                        <option value="College of Criminology">College of Criminology</option>
-                        <option value="College of Hospitality and Tourism Management">College of Hospitality and Tourism Management</option>
-                    </select>
-                    <div class="form-hint">Announcements submitted by this user will be tagged to this college.</div>
-                </div>
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label for="add_assigned_department" class="form-label">Assigned Department <span class="required">*</span></label>
+                        <?php if (empty($registered_departments)): ?>
+                            <div class="alert alert-warning" style="font-size: 0.85rem; padding: 0.75rem; background: #fffbeb; border: 1px solid #fef3c7; color: #92400e; border-radius: var(--radius-md);">
+                                <i class="fa-solid fa-triangle-exclamation"></i> No departments registered under <?= h($currentUser['assigned_college']) ?>. Please coordinate with the Super Administrator.
+                            </div>
+                        <?php else: ?>
+                            <select id="add_assigned_department" name="assigned_department" class="form-select" required>
+                                <option value="">-- Choose Department --</option>
+                                <?php foreach ($registered_departments as $dep): ?>
+                                    <option value="<?= h($dep['name']) ?>"><?= h($dep['name']) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                            <div class="form-hint" style="color: #b45309;">
+                                <i class="fa-solid fa-clock"></i> New department administrator accounts will be submitted for Super Administrator approval before they can log in.
+                            </div>
+                        <?php endif; ?>
+                    </div>
+                <?php else: ?>
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label for="add_role" class="form-label">Account Role <span class="required">*</span></label>
+                        <select id="add_role" name="role" class="form-select" onchange="toggleUnitFields('add')" required>
+                            <option value="university_admin" selected>University Administrator</option>
+                            <option value="office_admin">Office Administrator</option>
+                            <option value="college_admin">College Administrator</option>
+                            <option value="department_admin">Department Administrator</option>
+                        </select>
+                    </div>
+
+                    <!-- Specific Office Field (shown ONLY when Office Administrator is selected) -->
+                    <div class="form-group" id="add_office_wrapper" style="margin-top: 1rem; margin-bottom: 0; display: none;">
+                        <label for="add_assigned_office" class="form-label">Select Assigned Office <span class="required">*</span></label>
+                        <?php if (empty($registered_offices)): ?>
+                            <div class="alert alert-warning" style="font-size: 0.85rem; padding: 0.75rem; background: #fffbeb; border: 1px solid #fef3c7; color: #92400e; border-radius: var(--radius-md);">
+                                <i class="fa-solid fa-triangle-exclamation"></i> No offices registered yet. <a href="offices.php" target="_blank" style="text-decoration: underline; font-weight: 700;">Add an office in Office Management first</a>.
+                            </div>
+                        <?php else: ?>
+                            <select id="add_assigned_office" name="assigned_office" class="form-select">
+                                <option value="">-- Choose University Office --</option>
+                                <?php foreach ($registered_offices as $off): ?>
+                                    <option value="<?= h($off['name']) ?>"><?= h($off['name']) ?> (<?= h($off['code']) ?>)</option>
+                                <?php endforeach; ?>
+                            </select>
+                            <div class="form-hint">Announcements submitted by this user will be tagged to this office.</div>
+                        <?php endif; ?>
+                    </div>
+
+                    <!-- Specific College Field (shown ONLY when College Administrator is selected) -->
+                    <div class="form-group" id="add_college_wrapper" style="margin-top: 1rem; margin-bottom: 0; display: none;">
+                        <label for="add_assigned_college" class="form-label">Select Assigned College <span class="required">*</span></label>
+                        <?php if (empty($registered_colleges)): ?>
+                            <div class="alert alert-warning" style="font-size: 0.85rem; padding: 0.75rem; background: #fffbeb; border: 1px solid #fef3c7; color: #92400e; border-radius: var(--radius-md);">
+                                <i class="fa-solid fa-triangle-exclamation"></i> No colleges registered yet. <a href="colleges.php" target="_blank" style="text-decoration: underline; font-weight: 700;">Add a college in College Management first</a>.
+                            </div>
+                        <?php else: ?>
+                            <select id="add_assigned_college" name="assigned_college" class="form-select">
+                                <option value="">-- Choose College --</option>
+                                <?php foreach ($registered_colleges as $col): ?>
+                                    <option value="<?= h($col['name']) ?>"><?= h($col['name']) ?> (<?= h($col['code']) ?>)</option>
+                                <?php endforeach; ?>
+                            </select>
+                            <div class="form-hint">Announcements submitted by this user will be tagged to this college.</div>
+                        <?php endif; ?>
+                    </div>
+
+                    <!-- Specific Department Field (shown ONLY when Department Administrator is selected) -->
+                    <div class="form-group" id="add_department_wrapper" style="margin-top: 1rem; margin-bottom: 0; display: none;">
+                        <label for="add_assigned_department" class="form-label">Select Assigned Department <span class="required">*</span></label>
+                        <?php if (empty($registered_departments)): ?>
+                            <div class="alert alert-warning" style="font-size: 0.85rem; padding: 0.75rem; background: #fffbeb; border: 1px solid #fef3c7; color: #92400e; border-radius: var(--radius-md);">
+                                <i class="fa-solid fa-triangle-exclamation"></i> No departments registered yet. <a href="departments.php" target="_blank" style="text-decoration: underline; font-weight: 700;">Add a department in Department Management first</a>.
+                            </div>
+                        <?php else: ?>
+                            <select id="add_assigned_department" name="assigned_department" class="form-select">
+                                <option value="">-- Choose Department --</option>
+                                <?php foreach ($registered_departments as $dep): ?>
+                                    <option value="<?= h($dep['name']) ?>"><?= h($dep['name']) ?> (<?= h($dep['college']) ?>)</option>
+                                <?php endforeach; ?>
+                            </select>
+                            <div class="form-hint">Announcements submitted by this user will be tagged to this academic department.</div>
+                        <?php endif; ?>
+                    </div>
+                <?php endif; ?>
             </div>
 
             <div class="modal-footer">
@@ -518,7 +778,7 @@ require_once __DIR__ . '/includes/header.php';
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
                     <div class="form-group" style="margin-bottom: 0;">
                         <label for="edit_role" class="form-label">Role <span class="required">*</span></label>
-                        <select id="edit_role" name="role" class="form-select" onchange="toggleCollegeField('edit')" required>
+                        <select id="edit_role" name="role" class="form-select" onchange="toggleUnitFields('edit')" required>
                             <option value="super_admin">Super Administrator (Full Admin Access)</option>
                             <option value="university_admin">University Administrator</option>
                             <option value="office_admin">Office Administrator</option>
@@ -537,21 +797,55 @@ require_once __DIR__ . '/includes/header.php';
                     </div>
                 </div>
 
+                <!-- Specific Office Field (shown for Office Administrator) -->
+                <div class="form-group" id="edit_office_wrapper" style="margin-top: 1rem; margin-bottom: 0; display: none;">
+                    <label for="edit_assigned_office" class="form-label">Assigned University Office <span class="required">*</span></label>
+                    <?php if (empty($registered_offices)): ?>
+                        <div class="alert alert-warning" style="font-size: 0.85rem; padding: 0.75rem; background: #fffbeb; border: 1px solid #fef3c7; color: #92400e; border-radius: var(--radius-md);">
+                            <i class="fa-solid fa-triangle-exclamation"></i> No offices registered yet. <a href="offices.php" target="_blank" style="text-decoration: underline; font-weight: 700;">Add an office in Office Management first</a>.
+                        </div>
+                    <?php else: ?>
+                        <select id="edit_assigned_office" name="assigned_office" class="form-select">
+                            <option value="">-- Select Specific Office --</option>
+                            <?php foreach ($registered_offices as $off): ?>
+                                <option value="<?= h($off['name']) ?>"><?= h($off['name']) ?> (<?= h($off['code']) ?>)</option>
+                            <?php endforeach; ?>
+                        </select>
+                    <?php endif; ?>
+                </div>
+
                 <!-- Specific College Field (shown for College Administrator) -->
                 <div class="form-group" id="edit_college_wrapper" style="margin-top: 1rem; margin-bottom: 0; display: none;">
                     <label for="edit_assigned_college" class="form-label">Assigned College <span class="required">*</span></label>
-                    <select id="edit_assigned_college" name="assigned_college" class="form-select">
-                        <option value="">-- Select Specific College --</option>
-                        <option value="College of Nursing and Allied Health Sciences">College of Nursing and Allied Health Sciences</option>
-                        <option value="College of Engineering and Architecture">College of Engineering and Architecture</option>
-                        <option value="College of Computer Studies">College of Computer Studies</option>
-                        <option value="College of Arts and Sciences">College of Arts and Sciences</option>
-                        <option value="College of Business and Accountancy">College of Business and Accountancy</option>
-                        <option value="College of Education">College of Education</option>
-                        <option value="College of Criminology">College of Criminology</option>
-                        <option value="College of Hospitality and Tourism Management">College of Hospitality and Tourism Management</option>
-                    </select>
-                    <div class="form-hint">Announcements submitted by this user will be tagged to this college.</div>
+                    <?php if (empty($registered_colleges)): ?>
+                        <div class="alert alert-warning" style="font-size: 0.85rem; padding: 0.75rem; background: #fffbeb; border: 1px solid #fef3c7; color: #92400e; border-radius: var(--radius-md);">
+                            <i class="fa-solid fa-triangle-exclamation"></i> No colleges registered yet. <a href="colleges.php" target="_blank" style="text-decoration: underline; font-weight: 700;">Add a college in College Management first</a>.
+                        </div>
+                    <?php else: ?>
+                        <select id="edit_assigned_college" name="assigned_college" class="form-select">
+                            <option value="">-- Select Specific College --</option>
+                            <?php foreach ($registered_colleges as $col): ?>
+                                <option value="<?= h($col['name']) ?>"><?= h($col['name']) ?> (<?= h($col['code']) ?>)</option>
+                            <?php endforeach; ?>
+                        </select>
+                    <?php endif; ?>
+                </div>
+
+                <!-- Specific Department Field (shown for Department Administrator) -->
+                <div class="form-group" id="edit_department_wrapper" style="margin-top: 1rem; margin-bottom: 0; display: none;">
+                    <label for="edit_assigned_department" class="form-label">Assigned Department <span class="required">*</span></label>
+                    <?php if (empty($registered_departments)): ?>
+                        <div class="alert alert-warning" style="font-size: 0.85rem; padding: 0.75rem; background: #fffbeb; border: 1px solid #fef3c7; color: #92400e; border-radius: var(--radius-md);">
+                            <i class="fa-solid fa-triangle-exclamation"></i> No departments registered yet. <a href="departments.php" target="_blank" style="text-decoration: underline; font-weight: 700;">Add a department in Department Management first</a>.
+                        </div>
+                    <?php else: ?>
+                        <select id="edit_assigned_department" name="assigned_department" class="form-select">
+                            <option value="">-- Select Specific Department --</option>
+                            <?php foreach ($registered_departments as $dep): ?>
+                                <option value="<?= h($dep['name']) ?>"><?= h($dep['name']) ?> (<?= h($dep['college']) ?>)</option>
+                            <?php endforeach; ?>
+                        </select>
+                    <?php endif; ?>
                 </div>
             </div>
 
@@ -633,29 +927,83 @@ require_once __DIR__ . '/includes/header.php';
     </div>
 </div>
 
+<!-- ====================================================================
+     MODAL 5: DELETE USER (FOR DEACTIVATED ACCOUNTS)
+     ==================================================================== -->
+<div class="modal-overlay" id="deleteUserModal">
+    <div class="modal-dialog" style="max-width: 480px;">
+        <form method="POST" action="users.php">
+            <?= csrf_field() ?>
+            <input type="hidden" name="action" value="delete">
+            <input type="hidden" name="id" id="delete_user_id">
+
+            <div class="modal-header">
+                <h3 class="modal-title" style="color: var(--danger);">
+                    <i class="fa-solid fa-trash"></i> Delete User Account
+                </h3>
+                <button type="button" class="modal-close" onclick="closeModal('deleteUserModal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p style="margin-bottom: 0.75rem;">Are you sure you want to permanently delete this deactivated account?</p>
+                <div style="padding: 0.85rem 1rem; border-radius: var(--radius-md); background: #fef2f2; border: 1px solid #fee2e2; color: #991b1b; font-weight: 700;" id="deleteUserNameDisplay"></div>
+                <p style="font-size: 0.82rem; color: #dc2626; margin-top: 1rem;">
+                    <i class="fa-solid fa-circle-exclamation"></i> This action is permanent and cannot be undone.
+                </p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline" onclick="closeModal('deleteUserModal')">Cancel</button>
+                <button type="submit" class="btn btn-danger">
+                    <i class="fa-solid fa-trash"></i> Delete Account
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <script>
-// Dynamically show or hide the College field based on selected role
-function toggleCollegeField(mode) {
+// Dynamically show or hide the Office, College, or Department fields based on selected role
+function toggleUnitFields(mode) {
     const roleEl = document.getElementById(mode + '_role');
-    const wrapperEl = document.getElementById(mode + '_college_wrapper');
+    const officeWrapper = document.getElementById(mode + '_office_wrapper');
+    const collegeWrapper = document.getElementById(mode + '_college_wrapper');
+    const deptWrapper = document.getElementById(mode + '_department_wrapper');
+
+    const officeSelect = document.getElementById(mode + '_assigned_office');
     const collegeSelect = document.getElementById(mode + '_assigned_college');
-    if (roleEl && wrapperEl) {
-        if (roleEl.value === 'college_admin') {
-            wrapperEl.style.display = 'block';
-            if (collegeSelect) collegeSelect.required = true;
-        } else {
-            wrapperEl.style.display = 'none';
-            if (collegeSelect) {
-                collegeSelect.required = false;
-                collegeSelect.value = '';
-            }
-        }
+    const deptSelect = document.getElementById(mode + '_assigned_department');
+
+    if (!roleEl) return;
+    const role = roleEl.value;
+
+    if (officeWrapper) officeWrapper.style.display = (role === 'office_admin') ? 'block' : 'none';
+    if (collegeWrapper) collegeWrapper.style.display = (role === 'college_admin') ? 'block' : 'none';
+    if (deptWrapper) deptWrapper.style.display = (role === 'department_admin') ? 'block' : 'none';
+
+    if (officeSelect) {
+        officeSelect.required = (role === 'office_admin');
+        if (role !== 'office_admin') officeSelect.value = '';
+    }
+    if (collegeSelect) {
+        collegeSelect.required = (role === 'college_admin');
+        if (role !== 'college_admin') collegeSelect.value = '';
+    }
+    if (deptSelect) {
+        deptSelect.required = (role === 'department_admin');
+        if (role !== 'department_admin') deptSelect.value = '';
     }
 }
 
+// Backward compatibility alias
+function toggleCollegeField(mode) {
+    toggleUnitFields(mode);
+}
+
 function openAddUserModal() {
-    document.getElementById('add_role').value = 'university_admin';
-    toggleCollegeField('add');
+    const roleEl = document.getElementById('add_role');
+    if (roleEl) {
+        roleEl.value = 'university_admin';
+        toggleUnitFields('add');
+    }
     openModal('addUserModal');
 }
 
@@ -665,8 +1013,18 @@ function openEditModal(user) {
     document.getElementById('edit_email').value = user.email;
     document.getElementById('edit_role').value = user.role;
     document.getElementById('edit_status').value = user.status;
-    document.getElementById('edit_assigned_college').value = user.assigned_college || '';
-    toggleCollegeField('edit');
+    
+    if (document.getElementById('edit_assigned_office')) {
+        document.getElementById('edit_assigned_office').value = user.assigned_office || '';
+    }
+    if (document.getElementById('edit_assigned_college')) {
+        document.getElementById('edit_assigned_college').value = user.assigned_college || '';
+    }
+    if (document.getElementById('edit_assigned_department')) {
+        document.getElementById('edit_assigned_department').value = user.assigned_department || '';
+    }
+    
+    toggleUnitFields('edit');
     openModal('editUserModal');
 }
 
@@ -703,6 +1061,12 @@ function openResetPasswordModal(id, name) {
     document.getElementById('new_password').value = '';
     document.getElementById('confirm_password').value = '';
     openModal('resetPasswordModal');
+}
+
+function openDeleteUserModal(id, name) {
+    document.getElementById('delete_user_id').value = id;
+    document.getElementById('deleteUserNameDisplay').textContent = name;
+    openModal('deleteUserModal');
 }
 </script>
 

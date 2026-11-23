@@ -21,3 +21,18 @@ CREATE TABLE IF NOT EXISTS `departments` (`id` INT AUTO_INCREMENT PRIMARY KEY, `
 
 -- 5. Activity Logs Table
 CREATE TABLE IF NOT EXISTS `activity_logs` (`id` INT AUTO_INCREMENT PRIMARY KEY, `user_id` INT DEFAULT NULL, `action` VARCHAR(100) NOT NULL, `description` TEXT DEFAULT NULL, `ip_address` VARCHAR(45) DEFAULT NULL, `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE SET NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+-- 6. Announcements status extension for drafts and approval workflow
+ALTER TABLE `announcements` MODIFY COLUMN `status` ENUM('draft', 'pending_approval', 'pending', 'approved', 'published', 'rejected') NOT NULL DEFAULT 'draft';
+ALTER TABLE `announcements` ADD COLUMN IF NOT EXISTS `publishing_unit` VARCHAR(150) DEFAULT NULL;
+
+-- 7. Users status extension for pending approvals and student ID
+ALTER TABLE `users` MODIFY COLUMN `status` ENUM('active', 'inactive', 'pending_approval', 'rejected') NOT NULL DEFAULT 'active';
+ALTER TABLE `users` ADD COLUMN IF NOT EXISTS `student_id` VARCHAR(50) DEFAULT NULL;
+
+-- 8. Organization Logos
+ALTER TABLE `offices` ADD COLUMN IF NOT EXISTS `logo_path` VARCHAR(255) DEFAULT NULL;
+ALTER TABLE `colleges` ADD COLUMN IF NOT EXISTS `logo_path` VARCHAR(255) DEFAULT NULL;
+ALTER TABLE `departments` ADD COLUMN IF NOT EXISTS `logo_path` VARCHAR(255) DEFAULT NULL;
+ALTER TABLE `departments` ADD COLUMN IF NOT EXISTS `status` ENUM('active', 'inactive') NOT NULL DEFAULT 'active';

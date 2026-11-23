@@ -26,6 +26,11 @@ if ($pdo) {
         $where = ["a.status = 'rejected'"];
         $params = [];
 
+        if (!is_super_admin()) {
+            $where[] = "a.created_by = ?";
+            $params[] = $currentUser['id'];
+        }
+
         if (!empty($search)) {
             $where[] = "(a.title LIKE ? OR a.rejection_reason LIKE ? OR u.name LIKE ? OR rev.name LIKE ?)";
             $searchTerm = "%{$search}%";

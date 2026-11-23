@@ -187,16 +187,16 @@ require_once __DIR__ . '/includes/header.php';
                     </div>
                 </div>
 
-                <!-- Live Carousel Preview Container -->
+                <!-- Selected Media Files List with Remove (x) Buttons -->
+                <div id="mediaFilesList" class="media-files-list" style="display: none; margin-top: 1rem;"></div>
+
+                <!-- Live Carousel Preview Container (Facebook Format) -->
                 <div id="liveCarouselPreview" style="margin-top: 1.25rem; display: none;">
                     <div style="font-size: 0.82rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 0.5rem; letter-spacing: 0.05em;">
-                        <i class="fa-solid fa-eye"></i> Photo Slider Preview:
+                        <i class="fa-solid fa-eye"></i> Photo Slider Preview (Facebook Format):
                     </div>
                     <div id="previewCarouselContainer"></div>
                 </div>
-
-                <!-- Thumbnails bar -->
-                <div class="upload-thumbnails-grid" id="thumbnailsGrid"></div>
             </div>
 
             <!-- Urgent Checkbox -->
@@ -222,42 +222,102 @@ require_once __DIR__ . '/includes/header.php';
 </div>
 
 <script>
-let selectedImageUrls = [];
+let selectedMediaFiles = [];
+
+function formatBytes(bytes) {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+function syncFileInput() {
+    const input = document.getElementById('imageInput');
+    const dt = new DataTransfer();
+    selectedMediaFiles.forEach(file => dt.items.add(file));
+    input.files = dt.files;
+}
+
+function renderMediaFilesList() {
+    const mediaFilesList = document.getElementById('mediaFilesList');
+    const previewWrapper = document.getElementById('liveCarouselPreview');
+    const fileInput = document.getElementById('imageInput');
+
+    if (selectedMediaFiles.length === 0) {
+        mediaFilesList.style.display = 'none';
+        mediaFilesList.innerHTML = '';
+        fileInput.value = '';
+        previewWrapper.style.display = 'none';
+        document.getElementById('previewCarouselContainer').innerHTML = '';
+        return;
+    }
+
+    mediaFilesList.style.display = 'flex';
+    mediaFilesList.innerHTML = '';
+
+    const previewUrls = [];
+
+    selectedMediaFiles.forEach((file, index) => {
+        const objectUrl = URL.createObjectURL(file);
+        previewUrls.push(objectUrl);
+
+        const item = document.createElement('div');
+        item.className = 'media-file-item';
+        item.innerHTML = `
+            <div class="media-file-left">
+                <img src="${objectUrl}" class="media-file-thumb" alt="Preview thumb">
+                <div class="media-file-info">
+                    <div class="media-file-name" title="${escapeHtml(file.name)}">${escapeHtml(file.name)}</div>
+                    <div class="media-file-meta">
+                        <i class="fa-regular fa-file-image"></i>
+                        <span>${formatBytes(file.size)}</span>
+                    </div>
+                </div>
+            </div>
+            <button type="button" class="media-file-remove" title="Remove ${escapeHtml(file.name)}" data-index="${index}">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        `;
+
+        const removeBtn = item.querySelector('.media-file-remove');
+        removeBtn.addEventListener('click', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            removeMediaFile(index);
+        });
+
+        mediaFilesList.appendChild(item);
+    });
+
+    syncFileInput();
+
+    if (window.renderInstagramCarousel) {
+        previewWrapper.style.display = 'block';
+        window.renderInstagramCarousel(previewUrls, 'previewCarouselContainer', '');
+    }
+}
+
+function removeMediaFile(indexToRemove) {
+    selectedMediaFiles.splice(indexToRemove, 1);
+    renderMediaFilesList();
+}
 
 function handleFileSelect(input) {
-    const files = Array.from(input.files || []);
-    if (files.length === 0) return;
-
-    selectedImageUrls = [];
-    const thumbGrid = document.getElementById('thumbnailsGrid');
-    thumbGrid.innerHTML = '';
-
-    let readCount = 0;
-    files.forEach((file, index) => {
-        if (!file.type.startsWith('image/')) return;
-        const reader = new FileReader();
-        reader.onload = function(e) {
-            const dataUrl = e.target.result;
-            selectedImageUrls.push(dataUrl);
-
-            // Thumbnail card
-            const card = document.createElement('div');
-            card.className = 'upload-thumb-card';
-            card.innerHTML = `
-                <img src="${dataUrl}" alt="Thumbnail ${index + 1}">
-            `;
-            thumbGrid.appendChild(card);
-
-            readCount++;
-            if (readCount === files.length) {
-                // Render live Instagram-style carousel preview
-                const previewWrapper = document.getElementById('liveCarouselPreview');
-                previewWrapper.style.display = 'block';
-                window.renderInstagramCarousel(selectedImageUrls, 'previewCarouselContainer', '');
-            }
-        };
-        reader.readAsDataURL(file);
+    const newFiles = Array.from(input.files || []);
+    newFiles.forEach(f => {
+        const isDuplicate = selectedMediaFiles.some(existing => existing.name === f.name && existing.size === f.size && existing.lastModified === f.lastModified);
+        if (!isDuplicate) {
+            selectedMediaFiles.push(f);
+        }
     });
+    renderMediaFilesList();
 }
 </script>
 

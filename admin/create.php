@@ -26,35 +26,22 @@ $activeNav = 'create.php';
 
 $pdo = get_db();
 
-// Standard Registered Publishing Units for Super Admin selector
-$all_offices = [
-    'Office of the University President',
-    'Office of the University Registrar',
-    'Office of Student Affairs (OSA)',
-    'Information & Communications Technology (ICT)',
-    'University Library Services',
-    'Admissions & Enrollment Office',
-    'Health and Safety Services',
-    'University Athletics & Cultural Affairs'
-];
+// Load Registered Publishing Units dynamically from database (Office, College, Department Management)
+$all_offices = [];
+$all_colleges = [];
+$all_departments = [];
 
-$all_colleges = [
-    'College of Computer Studies',
-    'College of Engineering & Architecture',
-    'College of Business & Accountancy',
-    'College of Arts and Sciences',
-    'College of Education',
-    'College of Nursing & Health Sciences'
-];
-
-$all_departments = [
-    'Department of Computer Science',
-    'Department of Information Technology',
-    'Department of Civil Engineering',
-    'Department of Mechanical Engineering',
-    'Department of Accountancy',
-    'Department of Communication'
-];
+if ($pdo) {
+    try {
+        $all_offices = $pdo->query("SELECT name FROM offices ORDER BY name ASC")->fetchAll(PDO::FETCH_COLUMN);
+        $all_colleges = $pdo->query("SELECT name FROM colleges ORDER BY name ASC")->fetchAll(PDO::FETCH_COLUMN);
+        $all_departments = $pdo->query("SELECT name FROM departments ORDER BY name ASC")->fetchAll(PDO::FETCH_COLUMN);
+    } catch (Exception $e) {
+        $all_offices = [];
+        $all_colleges = [];
+        $all_departments = [];
+    }
+}
 
 // Fetch categories from DB
 $categories = [];
@@ -64,15 +51,6 @@ if ($pdo) {
     } catch (Exception $e) {
         $categories = [];
     }
-}
-if (empty($categories)) {
-    $categories = [
-        ['id' => 1, 'name' => 'Urgent Alert', 'badge_color' => 'danger'],
-        ['id' => 2, 'name' => 'Academic Affairs', 'badge_color' => 'primary'],
-        ['id' => 3, 'name' => 'Campus Events', 'badge_color' => 'success'],
-        ['id' => 4, 'name' => 'Student Life', 'badge_color' => 'warning'],
-        ['id' => 5, 'name' => 'Admissions & Enrollment', 'badge_color' => 'info'],
-    ];
 }
 
 $error = '';
@@ -138,18 +116,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = 'Database is currently unreachable.';
         } else {
             // Determine initial status based on action and authority
-            $status = 'approved'; // Direct publishing for authorized admin
             if ($submission_action === 'draft') {
-                $status = 'pending'; // Safe fallback for existing ENUM
-                if (empty($summary)) {
-                    $summary = '[Draft] ' . mb_substr(strip_tags($content), 0, 160);
+                $status = 'draft';
+            } elseif ($submission_action === 'publish') {
+                if (is_super_admin()) {
+                    $status = 'published';
                 } else {
-                    $summary = '[Draft] ' . $summary;
+                    $status = 'pending_approval'; // Non-super-admin requires Super Admin approval
                 }
-            } elseif ($submission_action === 'approval') {
-                $status = 'pending';
-            } elseif (!empty($schedule_date)) {
-                $status = 'pending';
+            } else {
+                $status = is_super_admin() ? 'published' : 'pending_approval';
+            }
+
+            if (!empty($schedule_date)) {
                 $summary = '[Scheduled: ' . $schedule_date . ' ' . $schedule_time . '] ' . $summary;
             }
 
@@ -164,13 +143,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             try {
                 $now = date('Y-m-d H:i:s');
-                $reviewer_id = ($status === 'approved') ? $currentUser['id'] : null;
-                $reviewed_at = ($status === 'approved') ? $now : null;
+                $reviewer_id = ($status === 'published') ? $currentUser['id'] : null;
+                $reviewed_at = ($status === 'published') ? $now : null;
 
                 $ins = $pdo->prepare("
                     INSERT INTO announcements 
-                    (title, slug, summary, content, category, category_id, created_by, author_name, status, reviewed_by, reviewed_at, target_audience, is_urgent, is_pinned, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (title, slug, summary, content, category, category_id, created_by, author_name, publishing_unit, status, reviewed_by, reviewed_at, target_audience, is_urgent, is_pinned, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ");
                 $ins->execute([
                     $title,
@@ -180,6 +159,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $category_name,
                     $category_id,
                     $currentUser['id'],
+                    $publishing_unit,
                     $publishing_unit,
                     $status,
                     $reviewer_id,
@@ -194,15 +174,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $newId = (int)$pdo->lastInsertId();
 
                 // Save multi-photo attachments if uploaded
-                if (!empty($_FILES['images']) && !empty($_FILES['images']['name'][0])) {
+                if (!empty($_FILES['images']) && !empty($_FILES['images']['name'])) {
                     save_announcement_images($newId, $_FILES['images']);
                 }
 
-                if ($submission_action === 'draft') {
+                if ($status === 'draft') {
                     set_flash('info', 'Announcement "' . h($title) . '" has been saved as draft.');
                     header('Location: drafts.php');
-                } elseif ($status === 'pending') {
-                    set_flash('success', 'Announcement "' . h($title) . '" submitted for review / scheduling.');
+                } elseif ($status === 'pending_approval') {
+                    set_flash('success', 'Announcement "' . h($title) . '" has been submitted for Super Administrator approval.');
                     header('Location: my_announcements.php');
                 } else {
                     set_flash('success', 'Announcement "' . h($title) . '" was successfully published live to the university portal!');
@@ -325,21 +305,27 @@ require_once __DIR__ . '/includes/header.php';
                                 <option value="University-Wide (International State College of the Philippines)">
                                     University-Wide (International State College of the Philippines)
                                 </option>
-                                <optgroup label="University Offices">
-                                    <?php foreach ($all_offices as $off): ?>
-                                        <option value="<?= h($off) ?>"><?= h($off) ?></option>
-                                    <?php endforeach; ?>
-                                </optgroup>
-                                <optgroup label="Colleges">
-                                    <?php foreach ($all_colleges as $col): ?>
-                                        <option value="<?= h($col) ?>"><?= h($col) ?></option>
-                                    <?php endforeach; ?>
-                                </optgroup>
-                                <optgroup label="Departments">
-                                    <?php foreach ($all_departments as $dep): ?>
-                                        <option value="<?= h($dep) ?>"><?= h($dep) ?></option>
-                                    <?php endforeach; ?>
-                                </optgroup>
+                                <?php if (!empty($all_offices)): ?>
+                                    <optgroup label="University Offices">
+                                        <?php foreach ($all_offices as $off): ?>
+                                            <option value="<?= h($off) ?>"><?= h($off) ?></option>
+                                        <?php endforeach; ?>
+                                    </optgroup>
+                                <?php endif; ?>
+                                <?php if (!empty($all_colleges)): ?>
+                                    <optgroup label="Colleges">
+                                        <?php foreach ($all_colleges as $col): ?>
+                                            <option value="<?= h($col) ?>"><?= h($col) ?></option>
+                                        <?php endforeach; ?>
+                                    </optgroup>
+                                <?php endif; ?>
+                                <?php if (!empty($all_departments)): ?>
+                                    <optgroup label="Departments">
+                                        <?php foreach ($all_departments as $dep): ?>
+                                            <option value="<?= h($dep) ?>"><?= h($dep) ?></option>
+                                        <?php endforeach; ?>
+                                    </optgroup>
+                                <?php endif; ?>
                             </select>
                             <div class="form-hint" style="color: #0369a1;">
                                 <i class="fa-solid fa-lock-open"></i>
@@ -427,10 +413,13 @@ require_once __DIR__ . '/includes/header.php';
                             multiple 
                             accept="image/jpeg,image/png,image/webp,image/gif"
                         >
-                        <div class="form-hint">
+                        <div class="form-hint" style="margin-bottom: 0.75rem;">
                             <i class="fa-solid fa-circle-info"></i>
                             <span>Select one or multiple images (JPG, PNG, WebP). Images automatically format into an interactive multi-photo carousel on the announcement board.</span>
                         </div>
+
+                        <!-- Selected Files List with Remove (x) Buttons -->
+                        <div id="mediaFilesList" class="media-files-list" style="display: none;"></div>
                     </div>
                 </div>
 
@@ -494,7 +483,7 @@ require_once __DIR__ . '/includes/header.php';
 
                 <!-- Section 5: Actions Toolbar -->
                 <div style="display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center; padding-top: 0.5rem;">
-                    <button type="button" class="btn btn-primary" onclick="submitWithAction('publish')" style="padding: 0.7rem 1.4rem;">
+                    <button type="button" class="btn btn-primary" onclick="handlePublishClick()" style="padding: 0.7rem 1.4rem;">
                         <i class="fa-solid fa-paper-plane"></i>
                         <span>Publish Now</span>
                     </button>
@@ -502,11 +491,6 @@ require_once __DIR__ . '/includes/header.php';
                     <button type="button" class="btn btn-outline" onclick="submitWithAction('draft')" style="padding: 0.7rem 1.25rem;">
                         <i class="fa-regular fa-floppy-disk"></i>
                         <span>Save as Draft</span>
-                    </button>
-
-                    <button type="button" class="btn btn-outline" onclick="submitWithAction('approval')" style="padding: 0.7rem 1.25rem;">
-                        <i class="fa-solid fa-clock-rotate-left"></i>
-                        <span>Submit for Approval</span>
                     </button>
 
                     <a href="index.php" class="btn btn-outline" style="margin-left: auto; padding: 0.7rem 1.25rem;">
@@ -548,6 +532,9 @@ require_once __DIR__ . '/includes/header.php';
                         Short teaser summary will be displayed on the student feed cards.
                     </p>
 
+                    <!-- Facebook-Style Live Image Carousel Preview -->
+                    <div id="previewCarouselContainer" style="display: none; margin-bottom: 1rem;"></div>
+
                     <div style="font-size: 0.82rem; color: #334155; line-height: 1.6; max-height: 180px; overflow-y: auto; background: #f8fafc; padding: 0.85rem; border-radius: var(--radius-sm); border: 1px solid #e2e8f0; white-space: pre-wrap;" id="prevContent">Full content details...</div>
 
                     <div style="margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid #f1f5f9; display: flex; align-items: center; justify-content: space-between; font-size: 0.74rem; color: #94a3b8;">
@@ -559,12 +546,9 @@ require_once __DIR__ . '/includes/header.php';
         </div>
     </div>
 </div>
-        </div>
-    </div>
-</div>
 
 <script>
-// Live Preview Synchronization
+// Live Preview Synchronization & Media Attachment File Manager
 document.addEventListener('DOMContentLoaded', function () {
     const titleInput = document.getElementById('annTitle');
     const catSelect = document.getElementById('annCategory');
@@ -615,12 +599,156 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 
     updatePreview();
+
+    // ====================================================================
+    // Media & Attachments: File Manager with Remove (X) Icon & Facebook Carousel Preview
+    // ====================================================================
+    const fileInput = document.getElementById('annImages');
+    const mediaFilesList = document.getElementById('mediaFilesList');
+    const previewCarouselContainer = document.getElementById('previewCarouselContainer');
+    let selectedMediaFiles = [];
+
+    function formatBytes(bytes) {
+        if (bytes === 0) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+    }
+
+    function escapeHtml(str) {
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+    }
+
+    function syncFileInput() {
+        const dt = new DataTransfer();
+        selectedMediaFiles.forEach(file => dt.items.add(file));
+        fileInput.files = dt.files;
+    }
+
+    function renderMediaFilesList() {
+        if (selectedMediaFiles.length === 0) {
+            mediaFilesList.style.display = 'none';
+            mediaFilesList.innerHTML = '';
+            fileInput.value = '';
+            previewCarouselContainer.style.display = 'none';
+            previewCarouselContainer.innerHTML = '';
+            return;
+        }
+
+        mediaFilesList.style.display = 'flex';
+        mediaFilesList.innerHTML = '';
+
+        const previewUrls = [];
+
+        selectedMediaFiles.forEach((file, index) => {
+            const objectUrl = URL.createObjectURL(file);
+            previewUrls.push(objectUrl);
+
+            const item = document.createElement('div');
+            item.className = 'media-file-item';
+            item.innerHTML = `
+                <div class="media-file-left">
+                    <img src="${objectUrl}" class="media-file-thumb" alt="Preview thumb">
+                    <div class="media-file-info">
+                        <div class="media-file-name" title="${escapeHtml(file.name)}">${escapeHtml(file.name)}</div>
+                        <div class="media-file-meta">
+                            <i class="fa-regular fa-file-image"></i>
+                            <span>${formatBytes(file.size)}</span>
+                        </div>
+                    </div>
+                </div>
+                <button type="button" class="media-file-remove" title="Remove ${escapeHtml(file.name)}" data-index="${index}">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            `;
+
+            const removeBtn = item.querySelector('.media-file-remove');
+            removeBtn.addEventListener('click', function (e) {
+                e.preventDefault();
+                e.stopPropagation();
+                removeMediaFile(index);
+            });
+
+            mediaFilesList.appendChild(item);
+        });
+
+        syncFileInput();
+
+        // Render Facebook-format live carousel preview
+        if (window.renderInstagramCarousel) {
+            window.renderInstagramCarousel(previewUrls, 'previewCarouselContainer', '');
+        }
+    }
+
+    function removeMediaFile(indexToRemove) {
+        selectedMediaFiles.splice(indexToRemove, 1);
+        renderMediaFilesList();
+    }
+
+    if (fileInput) {
+        fileInput.addEventListener('change', function () {
+            const newFiles = Array.from(fileInput.files || []);
+            newFiles.forEach(f => {
+                // Prevent duplicate addition of exact same file
+                const isDuplicate = selectedMediaFiles.some(existing => existing.name === f.name && existing.size === f.size && existing.lastModified === f.lastModified);
+                if (!isDuplicate) {
+                    selectedMediaFiles.push(f);
+                }
+            });
+            renderMediaFilesList();
+        });
+    }
 });
+
+const isSuperAdmin = <?= is_super_admin() ? 'true' : 'false' ?>;
+
+function handlePublishClick() {
+    const form = document.getElementById('announcementForm');
+    if (!form.checkValidity()) {
+        form.reportValidity();
+        return;
+    }
+    if (isSuperAdmin) {
+        submitWithAction('publish');
+    } else {
+        openModal('publishApprovalConfirmModal');
+    }
+}
 
 function submitWithAction(actionType) {
     document.getElementById('submissionAction').value = actionType;
     document.getElementById('announcementForm').submit();
 }
 </script>
+
+<!-- Publish Approval Confirmation Modal (for non-super-admins) -->
+<div class="modal-overlay" id="publishApprovalConfirmModal">
+    <div class="modal-dialog" style="max-width: 500px;">
+        <div class="modal-header">
+            <h3 class="modal-title" style="color: #0284c7;"><i class="fa-solid fa-clock-rotate-left"></i> Super Administrator Approval Required</h3>
+            <button type="button" class="modal-close" onclick="closeModal('publishApprovalConfirmModal')">&times;</button>
+        </div>
+        <div class="modal-body" style="padding: 1.5rem 1.25rem;">
+            <div style="width: 54px; height: 54px; border-radius: 50%; background: #e0f2fe; color: #0284c7; font-size: 1.5rem; display: flex; align-items: center; justify-content: center; margin: 0 auto 1.25rem;">
+                <i class="fa-solid fa-shield-halved"></i>
+            </div>
+            <h4 style="font-size: 1.1rem; font-weight: 800; color: #0f172a; text-align: center; margin-bottom: 0.65rem;">
+                Submit for Super Administrator Review?
+            </h4>
+            <p style="font-size: 0.88rem; color: #64748b; line-height: 1.55; text-align: center; margin-bottom: 0;">
+                As an organizational administrator, this announcement will not be published immediately. It must first be reviewed and authorized by the Super Administrator before becoming visible on the public campus announcement board.
+            </p>
+        </div>
+        <div class="modal-footer" style="display: flex; gap: 0.75rem; justify-content: flex-end; background: #f8fafc; padding: 1rem 1.25rem; border-top: 1px solid #e2e8f0;">
+            <button type="button" class="btn btn-outline" onclick="closeModal('publishApprovalConfirmModal')">Cancel</button>
+            <button type="button" class="btn btn-primary" onclick="submitWithAction('publish')">
+                <i class="fa-solid fa-paper-plane"></i> Confirm &amp; Submit
+            </button>
+        </div>
+    </div>
+</div>
 
 <?php require_once __DIR__ . '/includes/footer.php'; ?>

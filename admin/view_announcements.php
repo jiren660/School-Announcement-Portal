@@ -8,6 +8,8 @@ define('APP_INIT', true);
 require_once __DIR__ . '/includes/auth.php';
 require_admin();
 
+$currentUser = current_user();
+
 $page_title = 'View Announcements';
 $page_subtitle = 'List of all approved announcements currently published to the school portal.';
 $activeNav = 'view_announcements.php';
@@ -52,6 +54,11 @@ if ($pdo) {
         if (!empty($filter_category)) {
             $where[] = "a.category = ?";
             $params[] = $filter_category;
+        }
+
+        if (!is_super_admin()) {
+            $where[] = "a.created_by = ?";
+            $params[] = $currentUser['id'];
         }
 
         $whereClause = implode(' AND ', $where);
@@ -202,26 +209,61 @@ require_once __DIR__ . '/includes/header.php';
                                     <span class="category-pill"><?= h($ann['category'] ?? 'General') ?></span>
                                 </td>
                                 <td>
-                                    <div style="font-weight: 600;"><?= h($ann['author_name'] ?? 'Announcer') ?></div>
-                                    <div style="font-size: 0.78rem; color: var(--text-muted);"><?= h($ann['author_email'] ?? '') ?></div>
+                                    <?php 
+                                    $isAuthorMe = ((int)($ann['created_by'] ?? 0) === (int)$currentUser['id']) ||
+                                                  (!empty($ann['author_email']) && strcasecmp($ann['author_email'], $currentUser['email'] ?? '') === 0);
+                                    ?>
+                                    <?php if ($isAuthorMe): ?>
+                                        <div style="font-weight: 700; color: #0284c7; display: flex; align-items: center; gap: 0.35rem;">
+                                            <i class="fa-solid fa-user-check"></i> You
+                                        </div>
+                                        <div style="font-size: 0.78rem; color: var(--text-muted);"><?= h($currentUser['email'] ?? $ann['author_email'] ?? '') ?></div>
+                                    <?php else: ?>
+                                        <div style="font-weight: 600;"><?= h($ann['author_name'] ?? 'Announcer') ?></div>
+                                        <div style="font-size: 0.78rem; color: var(--text-muted);"><?= h($ann['author_email'] ?? '') ?></div>
+                                    <?php endif; ?>
                                 </td>
                                 <td>
-                                    <div style="font-weight: 500; color: #0f172a;">
-                                        <?= h($ann['reviewer_name'] ?? 'Administrator') ?>
-                                    </div>
-                                    <div style="font-size: 0.75rem; color: var(--text-muted);">
-                                        <?= !empty($ann['reviewed_at']) ? h(time_ago($ann['reviewed_at'])) : 'Auto-Approved' ?>
-                                    </div>
+                                    <?php
+                                    $isReviewerMe = ((int)($ann['reviewed_by'] ?? 0) === (int)$currentUser['id']) || 
+                                                    ($isAuthorMe && empty($ann['reviewed_by'])) ||
+                                                    (is_super_admin() && !empty($ann['reviewed_by']) && (int)$ann['reviewed_by'] === (int)$currentUser['id']);
+                                    ?>
+                                    <?php if ($isReviewerMe): ?>
+                                        <div style="font-weight: 700; color: #0284c7; display: flex; align-items: center; gap: 0.35rem;">
+                                            <i class="fa-solid fa-shield-check"></i> You
+                                        </div>
+                                        <div style="font-size: 0.75rem; color: var(--text-muted);">
+                                            <?= !empty($ann['reviewed_at']) ? h(time_ago($ann['reviewed_at'])) : 'Published' ?>
+                                        </div>
+                                    <?php else: ?>
+                                        <div style="font-weight: 500; color: #0f172a;">
+                                            <?= h($ann['reviewer_name'] ?? 'Administrator') ?>
+                                        </div>
+                                        <div style="font-size: 0.75rem; color: var(--text-muted);">
+                                            <?= !empty($ann['reviewed_at']) ? h(time_ago($ann['reviewed_at'])) : 'Auto-Approved' ?>
+                                        </div>
+                                    <?php endif; ?>
                                 </td>
                                 <td>
                                     <div style="font-size: 0.82rem; color: var(--text-muted); font-weight: 600;">
                                         <i class="fa-regular fa-eye"></i> <?= number_format($ann['views_count'] ?? 0) ?> views
                                     </div>
                                 </td>
-                                <td style="text-align: right;">
-                                    <button type="button" class="btn btn-outline btn-sm" onclick="viewAnnouncementModal(<?= h(json_encode($ann)) ?>)">
-                                        <i class="fa-solid fa-eye"></i> View
-                                    </button>
+                                <td style="text-align: right; white-space: nowrap;">
+                                    <div class="action-buttons" style="display: inline-flex; align-items: center; gap: 0.35rem; justify-content: flex-end;">
+                                        <button type="button" class="btn btn-outline btn-sm" onclick="viewAnnouncementModal(<?= h(json_encode($ann)) ?>)" title="View Announcement">
+                                            <i class="fa-solid fa-eye"></i> View
+                                        </button>
+                                        <?php if (can_manage_announcement($currentUser, $ann)): ?>
+                                            <a href="edit.php?id=<?= (int)$ann['id'] ?>" class="btn btn-outline btn-sm" style="color: #0284c7; border-color: #bae6fd;" title="Edit Announcement">
+                                                <i class="fa-solid fa-pen-to-square"></i> Edit
+                                            </a>
+                                            <a href="delete.php?id=<?= (int)$ann['id'] ?>" class="btn btn-outline btn-sm" style="color: #dc2626; border-color: #fecaca;" onclick="return confirm('Are you sure you want to delete this announcement?');" title="Delete Announcement">
+                                                <i class="fa-solid fa-trash"></i> Delete
+                                            </a>
+                                        <?php endif; ?>
+                                    </div>
                                 </td>
                             </tr>
                         <?php endforeach; ?>

@@ -26,16 +26,8 @@ if ($pdo) {
         $where = "1=1";
         $params = [];
         if (!is_super_admin()) {
-            if ($currentRole === ROLE_OFFICE_ADMIN && !empty($currentUser['assigned_office'])) {
-                $where = "(a.created_by = ? OR a.author_name LIKE ?)";
-                $params = [$currentUser['id'], '%' . $currentUser['assigned_office'] . '%'];
-            } elseif ($currentRole === ROLE_COLLEGE_ADMIN && !empty($currentUser['assigned_college'])) {
-                $where = "(a.created_by = ? OR a.author_name LIKE ?)";
-                $params = [$currentUser['id'], '%' . $currentUser['assigned_college'] . '%'];
-            } elseif ($currentRole === ROLE_DEPARTMENT_ADMIN && !empty($currentUser['assigned_department'])) {
-                $where = "(a.created_by = ? OR a.author_name LIKE ?)";
-                $params = [$currentUser['id'], '%' . $currentUser['assigned_department'] . '%'];
-            }
+            $where = "a.created_by = ?";
+            $params = [$currentUser['id']];
         }
 
         // Top Posts by views

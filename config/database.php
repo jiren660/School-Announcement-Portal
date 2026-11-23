@@ -208,6 +208,99 @@ function ensure_schema_exists(PDO $db, string $driver) {
             ");
         }
 
+        // Ensure organization tables and logo_path columns exist in all drivers
+        if ($driver === 'sqlite') {
+            $db->exec("
+                CREATE TABLE IF NOT EXISTS offices (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    code TEXT NOT NULL UNIQUE,
+                    name TEXT NOT NULL,
+                    email TEXT DEFAULT NULL,
+                    head TEXT DEFAULT NULL,
+                    logo_path TEXT DEFAULT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE TABLE IF NOT EXISTS colleges (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    code TEXT NOT NULL UNIQUE,
+                    name TEXT NOT NULL,
+                    dean TEXT DEFAULT NULL,
+                    logo_path TEXT DEFAULT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE TABLE IF NOT EXISTS departments (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    code TEXT NOT NULL UNIQUE,
+                    name TEXT NOT NULL,
+                    college TEXT NOT NULL,
+                    chairperson TEXT DEFAULT NULL,
+                    logo_path TEXT DEFAULT NULL,
+                    status TEXT NOT NULL DEFAULT 'active',
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                );
+            ");
+            foreach (['offices', 'colleges', 'departments'] as $tbl) {
+                try { $db->exec("ALTER TABLE {$tbl} ADD COLUMN logo_path TEXT DEFAULT NULL"); } catch (Exception $e) {}
+            }
+        } else {
+            $db->exec("
+                CREATE TABLE IF NOT EXISTS offices (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    code VARCHAR(50) NOT NULL UNIQUE,
+                    name VARCHAR(150) NOT NULL,
+                    email VARCHAR(150) DEFAULT NULL,
+                    head VARCHAR(100) DEFAULT NULL,
+                    logo_path VARCHAR(255) DEFAULT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+                CREATE TABLE IF NOT EXISTS colleges (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    code VARCHAR(50) NOT NULL UNIQUE,
+                    name VARCHAR(150) NOT NULL,
+                    dean VARCHAR(100) DEFAULT NULL,
+                    logo_path VARCHAR(255) DEFAULT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+                CREATE TABLE IF NOT EXISTS departments (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    code VARCHAR(50) NOT NULL UNIQUE,
+                    name VARCHAR(150) NOT NULL,
+                    college VARCHAR(150) NOT NULL,
+                    chairperson VARCHAR(100) DEFAULT NULL,
+                    logo_path VARCHAR(255) DEFAULT NULL,
+                    status ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+            ");
+            foreach (['offices', 'colleges', 'departments'] as $tbl) {
+                try { $db->exec("ALTER TABLE `{$tbl}` ADD COLUMN IF NOT EXISTS `logo_path` VARCHAR(255) DEFAULT NULL"); } catch (Exception $e) {}
+            }
+            try { $db->exec("ALTER TABLE `departments` ADD COLUMN IF NOT EXISTS `status` ENUM('active', 'inactive') NOT NULL DEFAULT 'active'"); } catch (Exception $e) {}
+        }
+
+        // Auto-sync legacy single image_path into announcement_images table so photos never get lost
+        try {
+            $db->exec("
+                INSERT INTO announcement_images (announcement_id, image_path, created_at)
+                SELECT a.id, a.image_path, COALESCE(a.created_at, NOW())
+                FROM announcements a
+                LEFT JOIN announcement_images ai ON a.id = ai.announcement_id
+                WHERE a.image_path IS NOT NULL AND a.image_path != '' AND ai.id IS NULL
+            ");
+        } catch (Exception $e) {
+            try {
+                $db->exec("
+                    INSERT INTO announcement_images (announcement_id, image_path, created_at)
+                    SELECT a.id, a.image_path, COALESCE(a.created_at, datetime('now'))
+                    FROM announcements a
+                    LEFT JOIN announcement_images ai ON a.id = ai.announcement_id
+                    WHERE a.image_path IS NOT NULL AND a.image_path != '' AND ai.id IS NULL
+                ");
+            } catch (Exception $e2) {}
+        }
+
         // Check if admin user exists; if none, seed initial data
         $stmt = $db->query("SELECT COUNT(*) FROM users");
         $userCount = (int)$stmt->fetchColumn();
@@ -434,7 +527,7 @@ function save_announcement_images(int $announcement_id, array $files_array): arr
 
     $saved = [];
     $allowed_exts = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
-    $allowed_mimes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    $allowed_mimes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/pjpeg', 'image/x-png'];
 
     // Normalize multiple file arrays if needed
     $names = (array)$files_array['name'];
@@ -451,7 +544,7 @@ function save_announcement_images(int $announcement_id, array $files_array): arr
         $origName = $names[$i];
         $size = $sizes[$i];
 
-        if ($size > 10 * 1024 * 1024) { // 10MB max per photo
+        if ($size > 15 * 1024 * 1024) { // 15MB max per photo
             continue;
         }
 
@@ -460,13 +553,16 @@ function save_announcement_images(int $announcement_id, array $files_array): arr
             continue;
         }
 
-        // Verify real mime type
-        $finfo = finfo_open(FILEINFO_MIME_TYPE);
-        $mime = finfo_file($finfo, $tmpName);
-        finfo_close($finfo);
-
-        if (!in_array($mime, $allowed_mimes, true)) {
-            continue;
+        // Verify real mime type if finfo available
+        if (function_exists('finfo_open')) {
+            $finfo = finfo_open(FILEINFO_MIME_TYPE);
+            if ($finfo) {
+                $mime = finfo_file($finfo, $tmpName);
+                finfo_close($finfo);
+                if ($mime && !in_array($mime, $allowed_mimes, true)) {
+                    continue;
+                }
+            }
         }
 
         // Generate safe unique filename
@@ -474,6 +570,7 @@ function save_announcement_images(int $announcement_id, array $files_array): arr
         $destPath = $uploadDir . $fileName;
 
         if (move_uploaded_file($tmpName, $destPath)) {
+            @chmod($destPath, 0666);
             $webPath = 'assets/uploads/announcements/' . $fileName;
 
             // Insert into announcement_images table
@@ -484,6 +581,8 @@ function save_announcement_images(int $announcement_id, array $files_array): arr
             } catch (Exception $e) {
                 error_log("DB image insert error: " . $e->getMessage());
             }
+        } else {
+            error_log("Failed to move uploaded file: " . $tmpName . " to " . $destPath);
         }
     }
 
@@ -499,3 +598,116 @@ function save_announcement_images(int $announcement_id, array $files_array): arr
 
     return $saved;
 }
+
+/**
+ * Upload an organization logo (office, college, department)
+ * Validates extension, mime type, size, and saves to assets/uploads/logos/
+ * Returns array: ['success' => bool, 'path' => ?string, 'error' => ?string]
+ */
+function upload_organization_logo(array $file, string $prefix = 'logo_'): array {
+    if (empty($file['name']) || ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+        $errorCode = $file['error'] ?? UPLOAD_ERR_NO_FILE;
+        if ($errorCode === UPLOAD_ERR_NO_FILE) {
+            return ['success' => false, 'path' => null, 'error' => 'No file uploaded.'];
+        }
+        $errorMsg = match ($errorCode) {
+            UPLOAD_ERR_INI_SIZE => 'File exceeds upload_max_filesize directive in php.ini.',
+            UPLOAD_ERR_FORM_SIZE => 'File exceeds MAX_FILE_SIZE specified in the form.',
+            UPLOAD_ERR_PARTIAL => 'File was only partially uploaded.',
+            UPLOAD_ERR_NO_TMP_DIR => 'Missing temporary upload directory on server.',
+            UPLOAD_ERR_CANT_WRITE => 'Failed to write file to disk.',
+            UPLOAD_ERR_EXTENSION => 'A PHP extension stopped the file upload.',
+            default => 'Upload failed (error code ' . $errorCode . ').'
+        };
+        return ['success' => false, 'path' => null, 'error' => $errorMsg];
+    }
+
+    $uploadDir = dirname(__DIR__) . '/assets/uploads/logos/';
+    if (!is_dir($uploadDir)) {
+        if (!mkdir($uploadDir, 0777, true) && !is_dir($uploadDir)) {
+            return ['success' => false, 'path' => null, 'error' => 'Failed to create logo upload directory.'];
+        }
+    }
+
+    $size = $file['size'] ?? 0;
+    if ($size > 5 * 1024 * 1024) { // 5MB max
+        return ['success' => false, 'path' => null, 'error' => 'File size exceeds 5MB limit.'];
+    }
+
+    $allowed_exts = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'svg'];
+    $allowed_mimes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml'];
+
+    $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+    if (!in_array($ext, $allowed_exts, true)) {
+        return ['success' => false, 'path' => null, 'error' => 'Invalid file format (.' . $ext . '). Please upload JPG, PNG, WEBP, GIF, or SVG.'];
+    }
+
+    // Check MIME type if available
+    if (function_exists('finfo_open') && !empty($file['tmp_name']) && file_exists($file['tmp_name'])) {
+        $finfo = finfo_open(FILEINFO_MIME_TYPE);
+        $mime = finfo_file($finfo, $file['tmp_name']);
+        finfo_close($finfo);
+        if ($mime && !in_array($mime, $allowed_mimes, true) && $ext !== 'svg') {
+            return ['success' => false, 'path' => null, 'error' => 'Invalid file MIME type (' . $mime . ').'];
+        }
+    }
+
+    $cleanPrefix = preg_replace('/[^a-zA-Z0-9_-]/', '', $prefix);
+    if (empty($cleanPrefix)) $cleanPrefix = 'logo_';
+    $fileName = $cleanPrefix . '_' . bin2hex(random_bytes(8)) . '.' . $ext;
+    $destPath = $uploadDir . $fileName;
+
+    if (move_uploaded_file($file['tmp_name'], $destPath)) {
+        return ['success' => true, 'path' => 'assets/uploads/logos/' . $fileName, 'error' => null];
+    }
+
+    return ['success' => false, 'path' => null, 'error' => 'Unable to save uploaded logo to disk. Check permissions on assets/uploads/logos/.'];
+}
+
+/**
+ * Retrieve logo path for a university office, college, or department by name
+ */
+function get_organization_logo(?string $org_name, ?string $default = 'assets/images/iscp_logo.png'): string {
+    if (empty($org_name)) {
+        return $default;
+    }
+
+    static $logo_cache = [];
+    if (isset($logo_cache[$org_name])) {
+        return $logo_cache[$org_name];
+    }
+
+    $pdo = get_db();
+    if ($pdo) {
+        try {
+            // Check offices
+            $stmt = $pdo->prepare("SELECT logo_path FROM offices WHERE name = ? OR code = ? LIMIT 1");
+            $stmt->execute([$org_name, $org_name]);
+            $logo = $stmt->fetchColumn();
+            if ($logo && file_exists(dirname(__DIR__) . '/' . $logo)) {
+                return $logo_cache[$org_name] = $logo;
+            }
+
+            // Check colleges
+            $stmt = $pdo->prepare("SELECT logo_path FROM colleges WHERE name = ? OR code = ? LIMIT 1");
+            $stmt->execute([$org_name, $org_name]);
+            $logo = $stmt->fetchColumn();
+            if ($logo && file_exists(dirname(__DIR__) . '/' . $logo)) {
+                return $logo_cache[$org_name] = $logo;
+            }
+
+            // Check departments
+            $stmt = $pdo->prepare("SELECT logo_path FROM departments WHERE name = ? OR code = ? LIMIT 1");
+            $stmt->execute([$org_name, $org_name]);
+            $logo = $stmt->fetchColumn();
+            if ($logo && file_exists(dirname(__DIR__) . '/' . $logo)) {
+                return $logo_cache[$org_name] = $logo;
+            }
+        } catch (Exception $e) {
+            // Fallback
+        }
+    }
+
+    return $logo_cache[$org_name] = $default;
+}
+

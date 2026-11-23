@@ -15,8 +15,13 @@ $activeNav = 'pending_requests.php';
 $pdo = get_db();
 $currentUser = current_user();
 
-// Handle POST actions: Approve or Reject
+// Handle POST actions: Approve or Reject (Super Admin only)
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!is_super_admin()) {
+        set_flash('danger', 'Unauthorized. Only Super Administrators can review announcement requests.');
+        header('Location: pending_requests.php');
+        exit;
+    }
     if (!verify_csrf_token()) {
         set_flash('danger', 'Security validation failed (invalid CSRF token). Please try again.');
         header('Location: pending_requests.php');
@@ -36,17 +41,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             $stmt = $pdo->prepare("
                 UPDATE announcements 
-                SET status = 'approved',
+                SET status = 'published',
                     reviewed_by = ?,
                     reviewed_at = ?,
                     rejection_reason = NULL,
                     updated_at = ?
-                WHERE id = ? AND status = 'pending'
+                WHERE id = ? AND status IN ('pending', 'pending_approval')
             ");
             $now = date('Y-m-d H:i:s');
             $stmt->execute([$currentUser['id'], $now, $now, $id]);
 
             if ($stmt->rowCount() > 0) {
+                // Log approval
+                try {
+                    $pdo->prepare("INSERT INTO activity_logs (user_id, action, description, ip_address, created_at) VALUES (?, 'announcement_approved', ?, ?, NOW())")
+                        ->execute([$currentUser['id'], 'Super Admin approved announcement #' . $id, $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1']);
+                } catch (Exception $e) {}
+
                 set_flash('success', 'Announcement #' . $id . ' has been approved and published to the public portal.');
             } else {
                 set_flash('warning', 'Announcement #' . $id . ' was not found or is no longer pending.');
@@ -74,12 +85,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     reviewed_by = ?,
                     reviewed_at = ?,
                     updated_at = ?
-                WHERE id = ? AND status = 'pending'
+                WHERE id = ? AND status IN ('pending', 'pending_approval')
             ");
             $now = date('Y-m-d H:i:s');
             $stmt->execute([$reason, $currentUser['id'], $now, $now, $id]);
 
             if ($stmt->rowCount() > 0) {
+                // Log rejection
+                try {
+                    $pdo->prepare("INSERT INTO activity_logs (user_id, action, description, ip_address, created_at) VALUES (?, 'announcement_rejected', ?, ?, NOW())")
+                        ->execute([$currentUser['id'], 'Super Admin rejected announcement #' . $id . ' Reason: ' . $reason, $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1']);
+                } catch (Exception $e) {}
+
                 set_flash('info', 'Announcement #' . $id . ' has been rejected. Rejection reason has been recorded.');
             } else {
                 set_flash('warning', 'Announcement #' . $id . ' was not found or is no longer pending.');
@@ -96,13 +113,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $pending_list = [];
 if ($pdo) {
     try {
-        $stmt = $pdo->query("
-            SELECT a.*, u.name AS author_name, u.email AS author_email
-            FROM announcements a
-            LEFT JOIN users u ON a.created_by = u.id
-            WHERE a.status = 'pending'
-            ORDER BY a.created_at ASC
-        ");
+        if (!is_super_admin()) {
+            $stmt = $pdo->prepare("
+                SELECT a.*, u.name AS author_name, u.email AS author_email
+                FROM announcements a
+                LEFT JOIN users u ON a.created_by = u.id
+                WHERE a.status IN ('pending', 'pending_approval') AND a.created_by = ?
+                ORDER BY a.created_at ASC
+            ");
+            $stmt->execute([$currentUser['id']]);
+        } else {
+            $stmt = $pdo->query("
+                SELECT a.*, u.name AS author_name, u.email AS author_email
+                FROM announcements a
+                LEFT JOIN users u ON a.created_by = u.id
+                WHERE a.status IN ('pending', 'pending_approval')
+                ORDER BY a.created_at ASC
+            ");
+        }
         $pending_list = $stmt->fetchAll();
 
         // Attach images
@@ -174,11 +202,24 @@ require_once __DIR__ . '/includes/header.php';
                                     <div style="font-weight: 700; color: var(--text-main); font-size: 0.95rem;">
                                         <?= h($ann['title']) ?>
                                     </div>
-                                    <?php if (!empty($ann['is_urgent'])): ?>
-                                        <span class="badge" style="background: #fee2e2; color: #b91c1c; font-size: 0.68rem; margin-top: 0.2rem;">
-                                            <i class="fa-solid fa-triangle-exclamation"></i> Flagged as Urgent
+                                    <div style="display: flex; gap: 0.35rem; align-items: center; margin-top: 0.25rem; flex-wrap: wrap;">
+                                        <span class="badge" style="background: #fef3c7; color: #b45309; font-size: 0.68rem; font-weight: 700;">
+                                            <i class="fa-solid fa-clock-rotate-left"></i> Awaiting Approval
                                         </span>
-                                    <?php endif; ?>
+                                        <?php if (!empty($ann['is_urgent'])): ?>
+                                            <span class="badge" style="background: #fee2e2; color: #b91c1c; font-size: 0.68rem;">
+                                                <i class="fa-solid fa-triangle-exclamation"></i> Urgent
+                                            </span>
+                                        <?php endif; ?>
+                                        <?php if (!empty($ann['images'])): ?>
+                                            <span class="badge" style="background: #e0f2fe; color: #0369a1; font-size: 0.68rem;">
+                                                <i class="fa-solid fa-images"></i> <?= count($ann['images']) ?> photo<?= count($ann['images']) > 1 ? 's' : '' ?>
+                                            </span>
+                                        <?php endif; ?>
+                                        <span style="font-size: 0.72rem; color: #64748b;">
+                                            Scope: <strong><?= h($ann['publishing_unit'] ?? $ann['author_name'] ?? 'University') ?></strong>
+                                        </span>
+                                    </div>
                                 </td>
                                 <td>
                                     <span class="category-pill"><?= h($ann['category'] ?? 'General') ?></span>

@@ -36,31 +36,9 @@ $draft_count = 0;
 
 if ($pdo) {
     try {
-        // Enforce role-based scope
-        $where = ["1=1"];
-        $params = [];
-
-        if (!is_super_admin()) {
-            if ($currentRole === ROLE_UNIVERSITY_ADMIN) {
-                $where[] = "(a.created_by = ? OR a.target_audience = 'All')";
-                $params[] = $currentUser['id'];
-            } elseif ($currentRole === ROLE_OFFICE_ADMIN && !empty($currentUser['assigned_office'])) {
-                $where[] = "(a.created_by = ? OR a.author_name LIKE ?)";
-                $params[] = $currentUser['id'];
-                $params[] = '%' . $currentUser['assigned_office'] . '%';
-            } elseif ($currentRole === ROLE_COLLEGE_ADMIN && !empty($currentUser['assigned_college'])) {
-                $where[] = "(a.created_by = ? OR a.author_name LIKE ?)";
-                $params[] = $currentUser['id'];
-                $params[] = '%' . $currentUser['assigned_college'] . '%';
-            } elseif ($currentRole === ROLE_DEPARTMENT_ADMIN && !empty($currentUser['assigned_department'])) {
-                $where[] = "(a.created_by = ? OR a.author_name LIKE ?)";
-                $params[] = $currentUser['id'];
-                $params[] = '%' . $currentUser['assigned_department'] . '%';
-            } else {
-                $where[] = "a.created_by = ?";
-                $params[] = $currentUser['id'];
-            }
-        }
+        // Enforce role-based scope: My Announcements strictly shows announcements created by the logged-in user
+        $where = ["a.created_by = ?"];
+        $params = [$currentUser['id']];
 
         // Metrics for this scope
         $scopeWhere = implode(' AND ', $where);
@@ -68,7 +46,7 @@ if ($pdo) {
             SELECT 
                 COUNT(*) AS total,
                 SUM(CASE WHEN status IN ('approved', 'published') THEN 1 ELSE 0 END) AS published,
-                SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending,
+                SUM(CASE WHEN status IN ('pending', 'pending_approval') THEN 1 ELSE 0 END) AS pending,
                 SUM(CASE WHEN status = 'draft' OR summary LIKE '[Draft]%' THEN 1 ELSE 0 END) AS drafts
             FROM announcements a
             WHERE {$scopeWhere}
@@ -84,7 +62,7 @@ if ($pdo) {
         if ($filter_status === 'published') {
             $where[] = "a.status IN ('approved', 'published')";
         } elseif ($filter_status === 'pending') {
-            $where[] = "a.status = 'pending'";
+            $where[] = "a.status IN ('pending', 'pending_approval')";
         } elseif ($filter_status === 'draft') {
             $where[] = "(a.status = 'draft' OR a.summary LIKE '[Draft]%')";
         } elseif ($filter_status === 'rejected') {
@@ -253,10 +231,10 @@ require_once __DIR__ . '/includes/header.php';
                                 <td>
                                     <?php
                                     $st = strtolower($ann['status']);
-                                    $is_draft = strpos($ann['summary'] ?? '', '[Draft]') === 0;
+                                    $is_draft = ($st === 'draft') || (strpos($ann['summary'] ?? '', '[Draft]') === 0);
                                     $badgeClass = 'badge-status-pending';
-                                    $statusIcon = 'fa-clock';
-                                    $displayStatus = ucfirst($st);
+                                    $statusIcon = 'fa-clock-rotate-left';
+                                    $displayStatus = 'Pending Approval';
 
                                     if ($is_draft) {
                                         $badgeClass = 'badge';
@@ -269,6 +247,7 @@ require_once __DIR__ . '/includes/header.php';
                                     } elseif ($st === 'rejected') {
                                         $badgeClass = 'badge-status-rejected';
                                         $statusIcon = 'fa-ban';
+                                        $displayStatus = 'Rejected';
                                     }
                                     ?>
                                     <span class="badge <?= $badgeClass ?>" <?= $is_draft ? 'style="background:#fef3c7; color:#d97706;"' : '' ?>>

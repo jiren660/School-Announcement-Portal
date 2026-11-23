@@ -312,33 +312,6 @@ function can_manage_announcement(array $user, array $announcement): bool {
         return true;
     }
 
-    // University Admin can manage university-wide announcements
-    if ($role === ROLE_UNIVERSITY_ADMIN) {
-        $audience = $announcement['target_audience'] ?? '';
-        return ($audience === 'All' || empty($announcement['publishing_unit']));
-    }
-
-    // Office Admin: check if unit matches assigned office
-    if ($role === ROLE_OFFICE_ADMIN) {
-        $assigned = $user['assigned_office'] ?? '';
-        $unit = $announcement['publishing_unit'] ?? $announcement['author_name'] ?? '';
-        return !empty($assigned) && stripos($unit, $assigned) !== false;
-    }
-
-    // College Admin: check if unit matches assigned college
-    if ($role === ROLE_COLLEGE_ADMIN) {
-        $assigned = $user['assigned_college'] ?? '';
-        $unit = $announcement['publishing_unit'] ?? $announcement['author_name'] ?? '';
-        return !empty($assigned) && stripos($unit, $assigned) !== false;
-    }
-
-    // Department Admin: check if unit matches assigned department
-    if ($role === ROLE_DEPARTMENT_ADMIN) {
-        $assigned = $user['assigned_department'] ?? '';
-        $unit = $announcement['publishing_unit'] ?? $announcement['author_name'] ?? '';
-        return !empty($assigned) && stripos($unit, $assigned) !== false;
-    }
-
     return false;
 }
 
@@ -456,7 +429,21 @@ function get_pending_count(): int {
     $pdo = get_db();
     if (!$pdo) return 0;
     try {
-        $stmt = $pdo->query("SELECT COUNT(*) FROM announcements WHERE status = 'pending'");
+        $stmt = $pdo->query("SELECT COUNT(*) FROM announcements WHERE status IN ('pending', 'pending_approval')");
+        return (int)$stmt->fetchColumn();
+    } catch (Exception $e) {
+        return 0;
+    }
+}
+
+/**
+ * Count helper for pending user accounts awaiting Super Admin approval
+ */
+function get_pending_users_count(): int {
+    $pdo = get_db();
+    if (!$pdo) return 0;
+    try {
+        $stmt = $pdo->query("SELECT COUNT(*) FROM users WHERE status = 'pending_approval'");
         return (int)$stmt->fetchColumn();
     } catch (Exception $e) {
         return 0;

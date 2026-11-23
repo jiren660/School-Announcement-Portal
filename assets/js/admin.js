@@ -3,6 +3,30 @@
  * Handles responsive sidebar, modals, live table filter, and confirmations.
  */
 
+// Immediate Global Modal Handlers (accessible anywhere, even before DOMContentLoaded)
+window.openModal = function (modalId) {
+    const modal = document.getElementById(modalId);
+    if (modal) {
+        // Close profile dropdown if open
+        const profileDropdown = document.getElementById('profileMenuDropdown');
+        if (profileDropdown) profileDropdown.classList.remove('show');
+
+        modal.classList.add('open');
+        document.body.style.overflow = 'hidden';
+        // Auto focus first input if exists
+        const input = modal.querySelector('input:not([type=hidden]), textarea');
+        if (input) setTimeout(() => input.focus(), 100);
+    }
+};
+
+window.closeModal = function (modalId) {
+    const modal = typeof modalId === 'string' ? document.getElementById(modalId) : (modalId ? modalId.closest('.modal-overlay') : null);
+    if (modal) {
+        modal.classList.remove('open');
+        document.body.style.overflow = '';
+    }
+};
+
 document.addEventListener('DOMContentLoaded', function () {
     // 1. Mobile Sidebar Toggle
     const sidebarToggle = document.getElementById('sidebarToggle');
@@ -35,26 +59,6 @@ document.addEventListener('DOMContentLoaded', function () {
             setTimeout(() => flashAlert.remove(), 400);
         }, 5000);
     }
-
-    // 3. Generic Modal Handlers
-    window.openModal = function (modalId) {
-        const modal = document.getElementById(modalId);
-        if (modal) {
-            modal.classList.add('open');
-            document.body.style.overflow = 'hidden';
-            // Auto focus first input if exists
-            const input = modal.querySelector('input:not([type=hidden]), textarea');
-            if (input) setTimeout(() => input.focus(), 100);
-        }
-    };
-
-    window.closeModal = function (modalId) {
-        const modal = typeof modalId === 'string' ? document.getElementById(modalId) : modalId.closest('.modal-overlay');
-        if (modal) {
-            modal.classList.remove('open');
-            document.body.style.overflow = '';
-        }
-    };
 
     // Close modal on click backdrop
     document.querySelectorAll('.modal-overlay').forEach(modal => {
@@ -115,7 +119,7 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 
 /**
- * Global Instagram-Style Carousel Renderer
+ * Global Facebook-Style Image Carousel Renderer
  * @param {Array<string>} images - Array of relative or absolute image URLs
  * @param {string} containerId - Element ID to render carousel into
  * @param {string} prefix - Path prefix (e.g. '../' for admin/announcer pages, '' for root)
@@ -130,27 +134,45 @@ window.renderInstagramCarousel = function (images, containerId, prefix = '../') 
         return;
     }
 
-    container.style.display = 'block';
-    const total = images.length;
-    let currentIndex = 0;
-
     const formattedImages = images.map(img => {
         if (!img) return '';
-        if (img.startsWith('http') || img.startsWith('/') || img.startsWith('data:')) {
+        if (img.startsWith('http') || img.startsWith('/') || img.startsWith('data:') || img.startsWith('blob:')) {
             return img;
         }
         return prefix + img;
     }).filter(img => img !== '');
 
-    if (formattedImages.length === 0) {
+    const total = formattedImages.length;
+    if (total === 0) {
         container.innerHTML = '';
         container.style.display = 'none';
         return;
     }
 
+    container.style.display = 'block';
+    let currentIndex = 0;
+
+    // Single Image View
+    if (total === 1) {
+        container.innerHTML = `
+            <div class="ig-carousel">
+                <div class="ig-carousel-slides">
+                    <div class="ig-carousel-slide">
+                        <img src="${formattedImages[0]}" alt="Announcement Photo" loading="lazy">
+                    </div>
+                </div>
+            </div>
+        `;
+        return;
+    }
+
+    // Multiple Images: Facebook Carousel Format
+    // Left & Right arrows: First image has right arrow as default; left arrow is hidden initially.
     let html = `
-        <div class="ig-carousel">
-            ${total > 1 ? `<span class="ig-carousel-badge"><i class="fa-solid fa-images"></i> <span class="current-slide">1</span>/${total}</span>` : ''}
+        <div class="ig-carousel facebook-carousel">
+            <span class="ig-carousel-badge">
+                <i class="fa-solid fa-images"></i> <span class="current-slide">1</span>/${total}
+            </span>
             <div class="ig-carousel-slides">
                 ${formattedImages.map((src, idx) => `
                     <div class="ig-carousel-slide">
@@ -158,19 +180,20 @@ window.renderInstagramCarousel = function (images, containerId, prefix = '../') 
                     </div>
                 `).join('')}
             </div>
-            ${total > 1 ? `
-                <button type="button" class="ig-carousel-btn ig-carousel-prev" aria-label="Previous"><i class="fa-solid fa-chevron-left"></i></button>
-                <button type="button" class="ig-carousel-btn ig-carousel-next" aria-label="Next"><i class="fa-solid fa-chevron-right"></i></button>
-                <div class="ig-carousel-dots">
-                    ${formattedImages.map((_, idx) => `<span class="ig-carousel-dot ${idx === 0 ? 'active' : ''}" data-index="${idx}"></span>`).join('')}
-                </div>
-            ` : ''}
+            <!-- Facebook-style left and right navigation buttons -->
+            <button type="button" class="ig-carousel-btn ig-carousel-prev" aria-label="Previous photo" style="display: none;">
+                <i class="fa-solid fa-chevron-left"></i>
+            </button>
+            <button type="button" class="ig-carousel-btn ig-carousel-next" aria-label="Next photo" style="display: flex;">
+                <i class="fa-solid fa-chevron-right"></i>
+            </button>
+            <div class="ig-carousel-dots">
+                ${formattedImages.map((_, idx) => `<span class="ig-carousel-dot ${idx === 0 ? 'active' : ''}" data-index="${idx}"></span>`).join('')}
+            </div>
         </div>
     `;
 
     container.innerHTML = html;
-
-    if (total <= 1) return;
 
     const carouselEl = container.querySelector('.ig-carousel');
     const slidesEl = carouselEl.querySelector('.ig-carousel-slides');
@@ -180,24 +203,43 @@ window.renderInstagramCarousel = function (images, containerId, prefix = '../') 
     const dots = carouselEl.querySelectorAll('.ig-carousel-dot');
 
     function updateSlide(index) {
-        if (index < 0) index = total - 1;
-        if (index >= total) index = 0;
+        if (index < 0) index = 0;
+        if (index >= total) index = total - 1;
         currentIndex = index;
+
         slidesEl.style.transform = `translateX(-${currentIndex * 100}%)`;
         if (badgeEl) badgeEl.textContent = currentIndex + 1;
         dots.forEach((d, i) => d.classList.toggle('active', i === currentIndex));
+
+        // Facebook format:
+        // On 1st image: left arrow is hidden, right arrow is visible (right arrow as default)
+        // On middle images: both arrows are visible
+        // On last image: left arrow is visible, right arrow is hidden
+        if (prevBtn) {
+            prevBtn.style.display = (currentIndex === 0) ? 'none' : 'flex';
+        }
+        if (nextBtn) {
+            nextBtn.style.display = (currentIndex === total - 1) ? 'none' : 'flex';
+        }
     }
+
+    // Set initial arrow states (slide 0)
+    updateSlide(0);
 
     prevBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         e.preventDefault();
-        updateSlide(currentIndex - 1);
+        if (currentIndex > 0) {
+            updateSlide(currentIndex - 1);
+        }
     });
 
     nextBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         e.preventDefault();
-        updateSlide(currentIndex + 1);
+        if (currentIndex < total - 1) {
+            updateSlide(currentIndex + 1);
+        }
     });
 
     dots.forEach(dot => {
@@ -208,4 +250,6 @@ window.renderInstagramCarousel = function (images, containerId, prefix = '../') 
         });
     });
 };
+
+window.renderFacebookCarousel = window.renderInstagramCarousel;
 

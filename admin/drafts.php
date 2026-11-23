@@ -25,22 +25,8 @@ if ($pdo) {
         $params = [];
 
         if (!is_super_admin()) {
-            if ($currentRole === ROLE_OFFICE_ADMIN && !empty($currentUser['assigned_office'])) {
-                $where[] = "(a.created_by = ? OR a.author_name LIKE ?)";
-                $params[] = $currentUser['id'];
-                $params[] = '%' . $currentUser['assigned_office'] . '%';
-            } elseif ($currentRole === ROLE_COLLEGE_ADMIN && !empty($currentUser['assigned_college'])) {
-                $where[] = "(a.created_by = ? OR a.author_name LIKE ?)";
-                $params[] = $currentUser['id'];
-                $params[] = '%' . $currentUser['assigned_college'] . '%';
-            } elseif ($currentRole === ROLE_DEPARTMENT_ADMIN && !empty($currentUser['assigned_department'])) {
-                $where[] = "(a.created_by = ? OR a.author_name LIKE ?)";
-                $params[] = $currentUser['id'];
-                $params[] = '%' . $currentUser['assigned_department'] . '%';
-            } else {
-                $where[] = "a.created_by = ?";
-                $params[] = $currentUser['id'];
-            }
+            $where[] = "a.created_by = ?";
+            $params[] = $currentUser['id'];
         }
 
         $sql = "
@@ -94,31 +80,36 @@ require_once __DIR__ . '/includes/header.php';
                         <tr>
                             <th>Draft Title</th>
                             <th>Category</th>
-                            <th>Scope</th>
+                            <th>Status</th>
+                            <th>Publishing Scope</th>
                             <th>Last Modified</th>
                             <th style="text-align: right;">Action</th>
                         </tr>
                     </thead>
                     <tbody>
                         <?php foreach ($drafts as $d): ?>
-                            <tr>
+                            <tr style="cursor: pointer;" onclick="if (!event.target.closest('a, button')) window.location.href='edit.php?id=<?= (int)$d['id'] ?>'">
                                 <td>
-                                    <div style="font-weight: 700; color: var(--text-main); font-size: 0.95rem;">
-                                        <?= h($d['title']) ?>
-                                    </div>
-                                    <div style="font-size: 0.8rem; color: #64748b; margin-top: 0.2rem;">
-                                        <?= h(mb_substr(str_replace('[Draft]', '', $d['summary'] ?? ''), 0, 90)) ?>...
-                                    </div>
+                                    <a href="edit.php?id=<?= (int)$d['id'] ?>" style="text-decoration: none; color: inherit; display: block;">
+                                        <div style="font-weight: 700; color: var(--primary); font-size: 0.95rem;">
+                                            <i class="fa-regular fa-file-lines" style="margin-right: 0.35rem; color: #d97706;"></i>
+                                            <?= h($d['title']) ?>
+                                        </div>
+                                        <div style="font-size: 0.8rem; color: #64748b; margin-top: 0.2rem;">
+                                            <?= h(mb_substr(str_replace('[Draft]', '', $d['summary'] ?? ''), 0, 90)) ?>...
+                                        </div>
+                                    </a>
                                 </td>
                                 <td><span class="category-pill"><?= h($d['category'] ?? 'General') ?></span></td>
-                                <td><span style="font-weight: 600; font-size: 0.85rem; color: #334155;"><?= h($d['author_name'] ?? $assignedUnit) ?></span></td>
+                                <td><span class="badge" style="background: #fef3c7; color: #b45309; font-weight: 700;"><i class="fa-solid fa-file-pen"></i> Draft</span></td>
+                                <td><span style="font-weight: 600; font-size: 0.85rem; color: #334155;"><?= h($d['publishing_unit'] ?? $d['author_name'] ?? $assignedUnit) ?></span></td>
                                 <td><?= h(time_ago($d['updated_at'] ?? $d['created_at'])) ?></td>
                                 <td style="text-align: right;">
                                     <div class="action-buttons" style="justify-content: flex-end;">
-                                        <a href="edit.php?id=<?= (int)$d['id'] ?>" class="btn btn-primary btn-sm">
+                                        <a href="edit.php?id=<?= (int)$d['id'] ?>" class="btn btn-primary btn-sm" title="Click to edit and modify draft">
                                             <i class="fa-solid fa-pen-to-square"></i> Edit &amp; Publish
                                         </a>
-                                        <a href="delete.php?id=<?= (int)$d['id'] ?>" class="btn btn-outline-danger btn-sm" onclick="return confirm('Delete this draft?');">
+                                        <a href="delete.php?id=<?= (int)$d['id'] ?>" class="btn btn-outline-danger btn-sm" onclick="return confirm('Delete this draft?');" title="Delete draft">
                                             <i class="fa-solid fa-trash"></i>
                                         </a>
                                     </div>

@@ -29,9 +29,15 @@ if (!empty($_SESSION['user_id']) && !empty($_SESSION['user_role'])) {
 $error = '';
 $info = '';
 
+if (isset($_GET['registered']) && $_GET['registered'] === '1') {
+    $info = 'Student registration successful! You may now sign in using your school email and password.';
+}
+
 if (isset($_GET['err'])) {
     if ($_GET['err'] === 'deactivated') {
         $error = 'Your account has been deactivated. Please contact the administrator.';
+    } elseif ($_GET['err'] === 'pending') {
+        $error = 'Your account registration is currently awaiting Super Administrator approval.';
     } elseif ($_GET['err'] === 'forbidden') {
         $error = 'You do not have permission to access that area.';
     }
@@ -67,7 +73,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             if ($user && password_verify($password, $user['password_hash'])) {
                 if ($user['status'] !== 'active') {
-                    $error = 'Your account is deactivated. Please coordinate with the School Administration.';
+                    if ($user['status'] === 'pending_approval') {
+                        $error = 'Your account registration is awaiting Super Administrator review and approval. Please check back later.';
+                    } elseif ($user['status'] === 'rejected') {
+                        $error = 'Your account registration request was not approved. Please contact the administrator for assistance.';
+                    } else {
+                        $error = 'Your account is deactivated. Please coordinate with the School Administration.';
+                    }
                 } else {
                     // Valid credentials: Start authenticated session
                     session_regenerate_id(true);
@@ -520,7 +532,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <?php if (!empty($info)): ?>
                 <div class="login-alert login-alert-info" role="status">
                     <i class="fa-solid fa-circle-info"></i>
-                    <div><?= h($info) ?></div>
+                    <div>
+                        <?= h($info) ?>
+                        <?php if (isset($_GET['registered']) && $_GET['registered'] === '1'): ?>
+                            <div style="margin-top: 0.65rem;">
+                                <a href="student/index.php" style="display: inline-flex; align-items: center; gap: 0.45rem; background: #0284c7; color: #ffffff; padding: 0.45rem 0.95rem; border-radius: var(--radius-full); text-decoration: none; font-size: 0.82rem; font-weight: 700; box-shadow: 0 4px 12px rgba(2, 132, 199, 0.3);">
+                                    <i class="fa-solid fa-bullhorn"></i>
+                                    <span>Click here to view announcements from your colleges and departments &rarr;</span>
+                                </a>
+                            </div>
+                        <?php endif; ?>
+                    </div>
                 </div>
             <?php endif; ?>
 
@@ -580,6 +602,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <i class="fa-solid fa-right-to-bracket"></i>
                     <span>Sign In to Portal</span>
                 </button>
+
+                <!-- Student Registration Link -->
+                <div style="margin-top: 1.25rem; text-align: center; font-size: 0.88rem; color: #64748b;">
+                    Are you a student? <a href="register.php" style="color: #0284c7; font-weight: 700; text-decoration: underline;">Create a Student Account</a>
+                </div>
             </form>
         </div>
     </div>

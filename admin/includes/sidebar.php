@@ -50,6 +50,18 @@ $currentQuery = $_SERVER['QUERY_STRING'] ?? '';
                     </a>
                 </li>
                 <li class="nav-item">
+                    <a href="my_announcements.php" class="nav-link <?= $activeNav === 'my_announcements.php' ? 'active' : '' ?>">
+                        <i class="fa-solid fa-bullhorn nav-icon"></i>
+                        <span class="nav-text">My Announcements</span>
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a href="drafts.php" class="nav-link <?= $activeNav === 'drafts.php' ? 'active' : '' ?>">
+                        <i class="fa-solid fa-file-pen nav-icon"></i>
+                        <span class="nav-text">Drafts</span>
+                    </a>
+                </li>
+                <li class="nav-item">
                     <a href="pending_requests.php" class="nav-link <?= $activeNav === 'pending_requests.php' ? 'active' : '' ?>">
                         <i class="fa-solid fa-clock-rotate-left nav-icon"></i>
                         <span class="nav-text">Pending Approvals</span>
@@ -283,6 +295,12 @@ $currentQuery = $_SERVER['QUERY_STRING'] ?? '';
                     </a>
                 </li>
                 <li class="nav-item">
+                    <a href="users.php" class="nav-link <?= $activeNav === 'users.php' ? 'active' : '' ?>">
+                        <i class="fa-solid fa-users-gear nav-icon"></i>
+                        <span class="nav-text">Department Users</span>
+                    </a>
+                </li>
+                <li class="nav-item">
                     <a href="notifications.php" class="nav-link <?= $activeNav === 'notifications.php' ? 'active' : '' ?>">
                         <i class="fa-solid fa-bell nav-icon"></i>
                         <span class="nav-text">Notifications</span>
@@ -373,7 +391,7 @@ $currentQuery = $_SERVER['QUERY_STRING'] ?? '';
                 <div class="name" title="<?= h($currentUser['name']) ?>"><?= h($currentUser['name']) ?></div>
                 <div class="role-email" title="<?= h($currentUser['email']) ?>"><?= h($currentUser['email']) ?></div>
             </div>
-            <a href="javascript:void(0)" onclick="openModal('signOutModal')" class="btn-sidebar-logout" title="Sign Out">
+            <a href="logout.php" onclick="if (window.openModal) { openModal('signOutModal'); return false; }" class="btn-sidebar-logout" title="Sign Out">
                 <i class="fa-solid fa-arrow-right-from-bracket"></i>
             </a>
         </div>

@@ -41,6 +41,22 @@ if (!defined('APP_INIT')) {
     </div>
 </div>
 
+<!-- Inline Fallback for Core Modals -->
+<script>
+window.openModal = window.openModal || function(id) {
+    var m = document.getElementById(id);
+    if (m) {
+        var drop = document.getElementById('profileMenuDropdown');
+        if (drop) drop.classList.remove('show');
+        m.classList.add('open');
+    }
+};
+window.closeModal = window.closeModal || function(id) {
+    var m = typeof id === 'string' ? document.getElementById(id) : (id ? id.closest('.modal-overlay') : null);
+    if (m) m.classList.remove('open');
+};
+</script>
+
 <!-- Admin JavaScript Bundle -->
 <script src="../assets/js/admin.js"></script>
 </body>

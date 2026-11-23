@@ -275,7 +275,7 @@ $flash = get_flash();
                             </a>
                         <?php endif; ?>
                         <div style="height: 1px; background: #f1f5f9; margin: 0.35rem 0;"></div>
-                        <a href="javascript:void(0)" onclick="openModal('signOutModal')" class="profile-menu-item logout-item">
+                        <a href="logout.php" onclick="if (window.openModal) { openModal('signOutModal'); return false; }" class="profile-menu-item logout-item">
                             <i class="fa-solid fa-right-from-bracket"></i> Sign Out
                         </a>
                     </div>

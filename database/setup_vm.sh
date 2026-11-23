@@ -65,6 +65,11 @@ CREATE TABLE IF NOT EXISTS `users` (
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Ensure scope columns exist if users table already existed previously
+ALTER TABLE `users` ADD COLUMN IF NOT EXISTS `assigned_college` VARCHAR(150) DEFAULT NULL;
+ALTER TABLE `users` ADD COLUMN IF NOT EXISTS `assigned_office` VARCHAR(150) DEFAULT NULL;
+ALTER TABLE `users` ADD COLUMN IF NOT EXISTS `assigned_department` VARCHAR(150) DEFAULT NULL;
+
 -- Categories Table
 CREATE TABLE IF NOT EXISTS `categories` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
@@ -158,13 +163,11 @@ INSERT INTO `categories` (`id`, `name`, `slug`, `badge_color`, `icon`) VALUES
 (5, 'Admissions & Enrollment', 'admissions', 'info', 'file-text')
 ON DUPLICATE KEY UPDATE `name`=VALUES(`name`);
 
--- Seed default accounts:
--- 1. Super Admin: admin@iscp.edu.ph / AdminPass123!
--- 2. College Admin: announcer@iscp.edu.ph / AnnouncerPass123!
+-- Seed default account:
+-- Super Admin: admin@iscp.edu.ph / AdminPass123!
 INSERT INTO `users` (`id`, `name`, `email`, `password_hash`, `role`, `assigned_college`, `status`, `created_at`) VALUES
-(1, 'System Administrator', 'admin@iscp.edu.ph', '$2y$12$DmTKME.6btq/BEVsRst01.Hb6PuA7oekF3bdYjzxIXZCgeMGWwUOy', 'super_admin', NULL, 'active', NOW()),
-(2, 'College Administrator Demo', 'announcer@iscp.edu.ph', '$2y$12$.zP3xWtpc9WzC.iK1se4Y.Jwq0Mr3bQDBGdIIuWXONk9qRpWWjNBe', 'college_admin', 'College of Computer Studies', 'active', NOW())
-ON DUPLICATE KEY UPDATE `password_hash`=VALUES(`password_hash`), `role`=VALUES(`role`), `assigned_college`=VALUES(`assigned_college`);
+(1, 'System Administrator', 'admin@iscp.edu.ph', '$2y$12$DmTKME.6btq/BEVsRst01.Hb6PuA7oekF3bdYjzxIXZCgeMGWwUOy', 'super_admin', NULL, 'active', NOW())
+ON DUPLICATE KEY UPDATE `password_hash`=VALUES(`password_hash`), `role`='super_admin';
 
 EOF
 

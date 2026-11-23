@@ -32,28 +32,20 @@ $metric_users_count = 0;
 $metric_offices_count = 0;
 $metric_colleges_count = 0;
 $metric_departments_count = 0;
+$metric_my_announcements_count = 0;
 
 $recent_announcements = [];
 $recent_activities = [];
 
 if ($pdo) {
     try {
-        // 1. Calculate Scope Filter for Queries
+        // 1. Calculate Scope Filter for Queries (Each user only views what they published, Super Admin views all)
         $scopeWhere = "1=1";
         $scopeParams = [];
 
-        if ($currentRole === ROLE_OFFICE_ADMIN && !empty($currentUser['assigned_office'])) {
-            $scopeWhere = "(a.created_by = ? OR a.author_name LIKE ?)";
-            $scopeParams[] = $currentUser['id'];
-            $scopeParams[] = '%' . $currentUser['assigned_office'] . '%';
-        } elseif ($currentRole === ROLE_COLLEGE_ADMIN && !empty($currentUser['assigned_college'])) {
-            $scopeWhere = "(a.created_by = ? OR a.author_name LIKE ?)";
-            $scopeParams[] = $currentUser['id'];
-            $scopeParams[] = '%' . $currentUser['assigned_college'] . '%';
-        } elseif ($currentRole === ROLE_DEPARTMENT_ADMIN && !empty($currentUser['assigned_department'])) {
-            $scopeWhere = "(a.created_by = ? OR a.author_name LIKE ?)";
-            $scopeParams[] = $currentUser['id'];
-            $scopeParams[] = '%' . $currentUser['assigned_department'] . '%';
+        if (!is_super_admin()) {
+            $scopeWhere = "a.created_by = ?";
+            $scopeParams = [$currentUser['id']];
         }
 
         // Total announcements in scope
@@ -68,9 +60,9 @@ if ($pdo) {
 
         // Pending announcements
         if (is_super_admin()) {
-            $metric_pending_count = (int)$pdo->query("SELECT COUNT(*) FROM announcements WHERE status = 'pending'")->fetchColumn();
+            $metric_pending_count = (int)$pdo->query("SELECT COUNT(*) FROM announcements WHERE status IN ('pending', 'pending_approval')")->fetchColumn();
         } else {
-            $stmtPend = $pdo->prepare("SELECT COUNT(*) FROM announcements a WHERE {$scopeWhere} AND a.status = 'pending'");
+            $stmtPend = $pdo->prepare("SELECT COUNT(*) FROM announcements a WHERE {$scopeWhere} AND a.status IN ('pending', 'pending_approval')");
             $stmtPend->execute($scopeParams);
             $metric_pending_count = (int)$stmtPend->fetchColumn();
         }
@@ -99,6 +91,15 @@ if ($pdo) {
             } catch (Exception $e) {
                 $metric_offices_count = 0;
             }
+
+            // Count Super Admin's own authored announcements
+            try {
+                $stmtMyCount = $pdo->prepare("SELECT COUNT(*) FROM announcements WHERE created_by = ?");
+                $stmtMyCount->execute([$currentUser['id']]);
+                $metric_my_announcements_count = (int)$stmtMyCount->fetchColumn();
+            } catch (Exception $e) {
+                $metric_my_announcements_count = 0;
+            }
         }
 
         // Recent Announcements for Main Table
@@ -112,6 +113,17 @@ if ($pdo) {
         ");
         $stmtLatest->execute($scopeParams);
         $recent_announcements = $stmtLatest->fetchAll();
+
+        // Attach images for live modal viewing
+        $imgStmt = $pdo->query("SELECT announcement_id, image_path FROM announcement_images ORDER BY id ASC");
+        $all_images = [];
+        foreach ($imgStmt->fetchAll() as $im) {
+            $all_images[$im['announcement_id']][] = $im['image_path'];
+        }
+        foreach ($recent_announcements as &$ann) {
+            $ann['images'] = $all_images[$ann['id']] ?? (!empty($ann['image_path']) ? [$ann['image_path']] : []);
+        }
+        unset($ann);
 
     } catch (PDOException $e) {
         set_flash('danger', 'Unable to retrieve dashboard metrics: ' . $e->getMessage());
@@ -163,7 +175,10 @@ require_once __DIR__ . '/includes/header.php';
         </p>
     </div>
 
-    <div style="display: flex; gap: 0.6rem; align-items: center;">
+    <div style="display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap;">
+        <a href="my_announcements.php" class="btn btn-outline" style="background: #ffffff; border-color: #bae6fd; color: #0284c7;">
+            <i class="fa-solid fa-bullhorn"></i> My Announcements
+        </a>
         <a href="create.php" class="btn btn-primary">
             <i class="fa-solid fa-plus-circle"></i> Create Announcement
         </a>
@@ -218,7 +233,7 @@ require_once __DIR__ . '/includes/header.php';
             </div>
         </a>
 
-        <!-- Widget 4: Pending Announcements -->
+        <!-- Widget 5: Pending Announcements -->
         <a href="pending_requests.php" class="metric-card">
             <div class="metric-icon-box icon-pending">
                 <i class="fa-solid fa-clock-rotate-left"></i>
@@ -415,7 +430,10 @@ require_once __DIR__ . '/includes/header.php';
                 <h2 class="card-title">Recent Announcements Activity</h2>
                 <span class="card-count-badge"><?= count($recent_announcements) ?> in scope</span>
             </div>
-            <div class="card-header-right">
+            <div class="card-header-right" style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                <a href="my_announcements.php" class="btn btn-outline btn-sm" style="color: #0284c7; border-color: #bae6fd;">
+                    <i class="fa-solid fa-bullhorn"></i> My Announcements
+                </a>
                 <a href="view_announcements.php" class="btn btn-outline btn-sm">
                     View All <i class="fa-solid fa-arrow-right"></i>
                 </a>
@@ -451,8 +469,8 @@ require_once __DIR__ . '/includes/header.php';
                         <tbody>
                             <?php foreach ($recent_announcements as $ann): ?>
                                 <tr>
-                                    <td>
-                                        <div style="font-weight: 700; color: var(--text-main); max-width: 300px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="<?= h($ann['title']) ?>">
+                                    <td style="min-width: 180px;">
+                                        <div style="font-weight: 700; color: var(--text-main); max-width: 240px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="<?= h($ann['title']) ?>">
                                             <?= h($ann['title']) ?>
                                         </div>
                                         <?php if (!empty($ann['is_urgent'])): ?>
@@ -479,7 +497,7 @@ require_once __DIR__ . '/includes/header.php';
                                         ?>
                                         <span class="badge <?= $badgeClass ?>">
                                             <i class="fa-solid <?= $statusIcon ?>"></i>
-                                            <?= ucfirst($st) ?>
+                                            <?= ucwords(str_replace('_', ' ', $st)) ?>
                                         </span>
                                     </td>
                                     <td>
@@ -487,16 +505,27 @@ require_once __DIR__ . '/includes/header.php';
                                             <?= h(time_ago($ann['created_at'])) ?>
                                         </span>
                                     </td>
-                                    <td style="text-align: right;">
-                                        <?php if ($st === 'pending' && is_super_admin()): ?>
-                                            <a href="pending_requests.php" class="btn btn-primary btn-sm">
-                                                <i class="fa-solid fa-gavel"></i> Review
-                                            </a>
-                                        <?php else: ?>
-                                            <button type="button" class="btn btn-outline btn-sm" onclick="showAnnouncementDetail(<?= h(json_encode($ann)) ?>)">
-                                                <i class="fa-solid fa-eye"></i> View
-                                            </button>
-                                        <?php endif; ?>
+                                    <td style="text-align: right; white-space: nowrap;">
+                                        <div style="display: inline-flex; align-items: center; gap: 0.35rem; justify-content: flex-end;">
+                                            <?php if (in_array($st, ['pending', 'pending_approval'], true) && is_super_admin()): ?>
+                                                <a href="pending_requests.php" class="btn btn-primary btn-sm">
+                                                    <i class="fa-solid fa-gavel"></i> Review
+                                                </a>
+                                            <?php else: ?>
+                                                <button type="button" class="btn btn-outline btn-sm" onclick="showAnnouncementDetail(<?= h(json_encode($ann)) ?>)" title="View Details">
+                                                    <i class="fa-solid fa-eye"></i> View
+                                                </button>
+                                            <?php endif; ?>
+
+                                            <?php if (can_manage_announcement($currentUser, $ann)): ?>
+                                                <a href="edit.php?id=<?= (int)$ann['id'] ?>" class="btn btn-outline btn-sm" style="color: #0284c7; border-color: #bae6fd;" title="Edit Announcement">
+                                                    <i class="fa-solid fa-pen-to-square"></i> Edit
+                                                </a>
+                                                <a href="delete.php?id=<?= (int)$ann['id'] ?>" class="btn btn-outline btn-sm" style="color: #dc2626; border-color: #fecaca;" onclick="return confirm('Are you sure you want to delete this announcement?');" title="Delete Announcement">
+                                                    <i class="fa-solid fa-trash"></i> Delete
+                                                </a>
+                                            <?php endif; ?>
+                                        </div>
                                     </td>
                                 </tr>
                             <?php endforeach; ?>
@@ -563,8 +592,11 @@ require_once __DIR__ . '/includes/header.php';
 
             <div class="form-group">
                 <label class="form-label">Title</label>
-                <div style="font-size: 1.15rem; font-weight: 800; color: var(--text-main);" id="modalDetailHeading"></div>
+                <div style="font-size: 1.15rem; font-weight: 800; color: var(--text-main); margin-bottom: 0.75rem;" id="modalDetailHeading"></div>
             </div>
+
+            <!-- Facebook-Style Image Carousel Container -->
+            <div id="modalDetailCarouselContainer" style="display: none; margin-bottom: 1.25rem;"></div>
 
             <div class="form-group">
                 <label class="form-label">Publishing Scope / Author</label>
@@ -594,6 +626,11 @@ function showAnnouncementDetail(ann) {
     const st = (ann.status || 'pending').toLowerCase();
     statusEl.className = 'badge badge-status-' + (st === 'published' ? 'approved' : st);
     statusEl.textContent = st.charAt(0).toUpperCase() + st.slice(1);
+
+    // Render Facebook-Format Carousel
+    if (window.renderInstagramCarousel) {
+        window.renderInstagramCarousel(ann.images || [], 'modalDetailCarouselContainer', '../');
+    }
 
     openModal('viewDetailModal');
 }
